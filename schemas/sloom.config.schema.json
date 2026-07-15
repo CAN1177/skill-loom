@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sloom.dev/schemas/sloom.config.schema.json",
+  "title": "sLoom Config",
+  "type": "object",
+  "properties": {
+    "apiVersion": { "const": "sloom.dev/v1alpha1" },
+    "skillPaths": { "type": "array", "items": { "type": "string" } },
+    "defaultPack": { "type": "string" },
+    "defaultBlueprint": { "type": "string" },
+    "catalog": { "type": "string" }
+  },
+  "additionalProperties": true
+}

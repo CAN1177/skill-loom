@@ -1,0 +1,14 @@
+{
+  "apiVersion": "sloom.dev/v1alpha1",
+  "kind": "Blueprint",
+  "metadata": { "id": "bugfix", "version": "1.0.0" },
+  "spec": {
+    "intent": "bugfix",
+    "phases": [
+      { "id": "discovery", "requiredArtifacts": ["repo.context"] },
+      { "id": "implementation", "requiredArtifacts": ["source.diff", "implementation.summary"] },
+      { "id": "verification", "requiredArtifacts": ["test-report"] },
+      { "id": "review", "requiredArtifacts": ["review-result"], "gate": "review-result.status == 'approved'" }
+    ]
+  }
+}

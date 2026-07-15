@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sloom.dev/schemas/skillforge.schema.json",
+  "title": "sLoom Skill Sidecar",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "sloom.dev/v1alpha1" },
+    "kind": { "const": "Skill" },
+    "metadata": {
+      "type": "object",
+      "required": ["id", "version", "title", "skillPath"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]*$" },
+        "version": { "type": "string" },
+        "title": { "type": "string" },
+        "skillPath": { "type": "string" },
+        "owners": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
+    },
+    "spec": {
+      "type": "object",
+      "required": ["intents", "capabilities", "inputs", "outputs", "execution", "policy", "routing"],
+      "properties": {
+        "intents": { "type": "array", "items": { "type": "string" } },
+        "capabilities": { "type": "array", "items": { "type": "string" } },
+        "inputs": {
+          "type": "object",
+          "properties": {
+            "required": { "type": "array", "items": { "type": "string" } },
+            "optional": { "type": "array", "items": { "type": "string" } }
+          },
+          "additionalProperties": false
+        },
+        "outputs": { "type": "array", "items": { "type": "string" } },
+        "execution": { "type": "object" },
+        "policy": { "type": "object" },
+        "routing": { "type": "object" },
+        "gates": { "type": "object" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

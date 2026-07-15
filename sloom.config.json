@@ -1,0 +1,10 @@
+{
+  "$schema": "./schemas/sloom.config.schema.json",
+  "apiVersion": "sloom.dev/v1alpha1",
+  "skillPaths": [
+    "./examples/skills"
+  ],
+  "defaultPack": "frontend-delivery",
+  "defaultBlueprint": "bugfix",
+  "catalog": ".sloom/catalog.json"
+}

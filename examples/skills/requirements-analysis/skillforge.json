@@ -1,0 +1,21 @@
+{
+  "apiVersion": "sloom.dev/v1alpha1",
+  "kind": "Skill",
+  "metadata": {
+    "id": "requirements.analysis",
+    "version": "1.0.0",
+    "title": "Requirements Analysis",
+    "skillPath": "examples/skills/requirements-analysis",
+    "owners": ["product-engineering"]
+  },
+  "spec": {
+    "intents": ["feature", "refactor"],
+    "capabilities": ["requirements", "acceptance-criteria", "scope-control"],
+    "inputs": { "required": ["task.description", "repo.context"], "optional": [] },
+    "outputs": ["requirement.spec"],
+    "execution": { "preferredExecutor": "claude-code", "fallbackExecutors": ["codex"], "workspace": "current", "timeoutMinutes": 20, "parallelSafe": true },
+    "policy": { "risk": "low", "permissions": ["filesystem.read"], "denyCommands": ["rm -rf", "git push"] },
+    "routing": { "includeKeywords": ["需求", "功能", "feature", "新增", "验收"], "excludeKeywords": [], "cost": "low", "tags": ["discovery", "requirements"] },
+    "gates": { "after": [{ "artifact": "requirement.spec" }] }
+  }
+}

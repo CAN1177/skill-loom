@@ -1,0 +1,17 @@
+{
+  "name": "sloom",
+  "version": "0.1.0",
+  "description": "Skill-first orchestrator CLI.",
+  "type": "module",
+  "bin": {
+    "sloom": "bin/sloom.js",
+    "skillforge": "bin/sloom.js"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@sloom/core": "workspace:*"
+  }
+}

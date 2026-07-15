@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sloom.dev/schemas/workflow-plan.schema.json",
+  "title": "sLoom WorkflowPlan",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "sloom.dev/v1alpha1" },
+    "kind": { "const": "WorkflowPlan" },
+    "metadata": {
+      "type": "object",
+      "required": ["id", "blueprint"],
+      "properties": {
+        "id": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "blueprint": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "spec": {
+      "type": "object",
+      "required": ["task", "nodes"],
+      "properties": {
+        "task": { "type": "object" },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "skill", "executor", "outputs"],
+            "properties": {
+              "id": { "type": "string" },
+              "skill": { "type": "string" },
+              "executor": { "type": "string" },
+              "inputs": { "type": "array", "items": { "type": "string" } },
+              "outputs": { "type": "array", "items": { "type": "string" } },
+              "dependsOn": { "type": "array", "items": { "type": "string" } },
+              "selectedBecause": { "type": "string" }
+            },
+            "additionalProperties": true
+          }
+        },
+        "gates": { "type": "array" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

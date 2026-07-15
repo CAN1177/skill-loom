@@ -1,0 +1,24 @@
+{
+  "apiVersion": "sloom.dev/v1alpha1",
+  "kind": "Pack",
+  "metadata": { "id": "frontend-delivery", "version": "1.0.0" },
+  "spec": {
+    "include": [
+      "repo.exploration",
+      "requirements.analysis",
+      "architecture.decision",
+      "implementation.targeted-fix",
+      "test.regression",
+      "review.code"
+    ],
+    "routingPolicy": {
+      "maxSkills": 7,
+      "preferMinimalPlan": true,
+      "minimumConfidence": 0.5
+    },
+    "policy": {
+      "allowExecutors": ["claude-code", "codex", "shell"],
+      "defaultWorkspace": "isolated-worktree"
+    }
+  }
+}

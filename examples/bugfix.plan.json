@@ -1,0 +1,52 @@
+{
+  "apiVersion": "sloom.dev/v1alpha1",
+  "kind": "WorkflowPlan",
+  "metadata": {
+    "id": "example-bugfix",
+    "createdAt": "2026-07-15T00:00:00.000Z",
+    "blueprint": "bugfix"
+  },
+  "spec": {
+    "task": { "description": "修复资源列表搜索为空时报错", "intent": "bugfix", "risk": "low" },
+    "nodes": [
+      {
+        "id": "exploration",
+        "skill": "repo.exploration",
+        "executor": "shell",
+        "inputs": ["task.description"],
+        "outputs": ["repo.context"],
+        "selectedBecause": "Repository context is required"
+      },
+      {
+        "id": "targeted-fix",
+        "skill": "implementation.targeted-fix",
+        "executor": "claude-code",
+        "inputs": ["repo.context"],
+        "outputs": ["source.diff", "implementation.summary"],
+        "dependsOn": ["exploration"],
+        "selectedBecause": "Bugfix requires source.diff"
+      },
+      {
+        "id": "regression-test",
+        "skill": "test.regression",
+        "executor": "shell",
+        "inputs": ["source.diff"],
+        "outputs": ["test-report"],
+        "dependsOn": ["targeted-fix"],
+        "selectedBecause": "Changed behavior needs regression evidence"
+      },
+      {
+        "id": "review",
+        "skill": "review.code",
+        "executor": "codex",
+        "inputs": ["source.diff", "test-report"],
+        "outputs": ["review-result"],
+        "dependsOn": ["targeted-fix", "regression-test"],
+        "selectedBecause": "Review gate is required"
+      }
+    ],
+    "gates": [
+      { "after": "review", "type": "assertion", "expression": "artifacts['review-result'].status == 'approved'" }
+    ]
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "apiVersion": "sloom.dev/v1alpha1",
+  "kind": "Blueprint",
+  "metadata": { "id": "feature", "version": "1.0.0" },
+  "spec": {
+    "intent": "feature",
+    "phases": [
+      { "id": "discovery", "requiredArtifacts": ["repo.context", "requirement.spec"] },
+      { "id": "design", "condition": "task.risk in ['medium', 'high'] || task.scope == 'cross-module'", "requiredArtifacts": ["architecture.decision"] },
+      { "id": "implementation", "requiredArtifacts": ["source.diff", "implementation.summary"] },
+      { "id": "verification", "requiredArtifacts": ["test-report"] },
+      { "id": "review", "requiredArtifacts": ["review-result"], "gate": "review-result.status == 'approved'" }
+    ]
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "name": "skill-loom-workspace",
+  "private": true,
+  "version": "0.1.0",
+  "description": "sLoom: Skill-first orchestrator CLI for routing, planning, validating, and tracing skill workflows.",
+  "type": "module",
+  "packageManager": "pnpm@9.6.0",
+  "scripts": {
+    "sloom": "node packages/cli/bin/sloom.js",
+    "test": "node --test",
+    "check": "node packages/cli/bin/sloom.js --help && node packages/cli/bin/sloom.js validate examples/bugfix.plan.json && node packages/cli/bin/sloom.js graph examples/bugfix.plan.json"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "keywords": [
+    "agents",
+    "skills",
+    "orchestration",
+    "cli",
+    "workflow",
+    "developer-tools"
+  ],
+  "license": "MIT"
+}
