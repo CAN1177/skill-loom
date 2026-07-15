@@ -165,7 +165,7 @@ function ensureCatalog() {
 }
 
 function help() {
-  console.log(`sLoom — Skill-first Orchestrator CLI\n\nUsage:\n  sloom init\n  sloom index [skill-path ...]\n  sloom skills list|show <id>|lint [--strict]\n  sloom route "<task>" [--pack <id>] [--json]\n  sloom plan --task "<task>" [--blueprint bugfix|feature] [--out plan.json]\n  sloom validate <plan.json>\n  sloom graph <plan.json> [--out graph.mmd]\n  sloom run <plan.json> --dry-run\n\nAlias: skillforge\n`);
+  console.log(`sLoom — Skill-first Orchestrator CLI\n\nUsage:\n  sloom init\n  sloom index [skill-path ...]\n  sloom skills list|show <id>|lint [--strict]\n  sloom route "<task>" [--pack <id>] [--json]\n  sloom plan --task "<task>" [--blueprint bugfix|feature] [--out plan.json]\n  sloom validate <plan.json>\n  sloom graph <plan.json> [--out graph.mmd]\n  sloom run <plan.json> --dry-run\n`);
 }
 
 function getOption(argv, name) {

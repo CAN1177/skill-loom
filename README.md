@@ -23,7 +23,7 @@ Task / Issue
 This repository contains the first open-source MVP scaffold:
 
 - zero-dependency Node.js 22 CLI
-- local skill indexer for `SKILL.md` + `skillforge.json`
+- local skill indexer for `SKILL.md` + `sloom.json`
 - catalog linter
 - lexical router with pack filtering
 - bugfix / feature blueprints
@@ -63,7 +63,7 @@ node packages/cli/bin/sloom.js graph .sloom/plans/search-empty-bug.json
 node packages/cli/bin/sloom.js run .sloom/plans/search-empty-bug.json --dry-run
 ```
 
-If installed as a package, the binary names are `sloom` and `skillforge`.
+If installed as a package, the binary name is `sloom`.
 
 ## Repository layout
 
@@ -85,7 +85,7 @@ sLoom does not require rewriting existing `SKILL.md` files. Add a sidecar next t
 ```text
 my-skill/
   SKILL.md
-  skillforge.json
+  sloom.json
 ```
 
 Minimal sidecar shape:

@@ -97,12 +97,12 @@ CAO（可选执行器）
 
 ### 3.1 不改写现有 Skill
 
-保留现有 `SKILL.md`，通过同目录的 `skillforge.yaml` 补充编排元数据：
+保留现有 `SKILL.md`，通过同目录的 `sloom.yaml` 补充编排元数据：
 
 ```text
 ~/.claude/skills/react-feature/
   SKILL.md
-  skillforge.yaml
+  sloom.yaml
 ```
 
 ### 3.2 Artifact 优先
@@ -120,10 +120,10 @@ review                -> review-result.json
 ### 3.3 计划与执行分离
 
 ```bash
-skillforge route "为资源列表增加批量操作与权限控制"
-skillforge plan --task issue-482 --out .sloom/plans/issue-482.yaml
-skillforge validate .sloom/plans/issue-482.yaml
-skillforge run .sloom/plans/issue-482.yaml
+sloom route "为资源列表增加批量操作与权限控制"
+sloom plan --task issue-482 --out .sloom/plans/issue-482.yaml
+sloom validate .sloom/plans/issue-482.yaml
+sloom run .sloom/plans/issue-482.yaml
 ```
 
 Plan 一旦被批准并执行，Executor 不应让模型动态加删节点；失败必须形成显式 `replan`。
@@ -195,7 +195,7 @@ sloom/
 
 ## 5. Skill 元数据
 
-`skillforge.yaml` 示例：
+`sloom.yaml` 示例：
 
 ```yaml
 apiVersion: sloom.dev/v1alpha1
@@ -341,7 +341,7 @@ spec:
 命令：
 
 ```bash
-skillforge route   --task "为云资源列表加入批量标签编辑，并按 RBAC 控制权限"   --repo .   --pack frontend-delivery   --json
+sloom route   --task "为云资源列表加入批量标签编辑，并按 RBAC 控制权限"   --repo .   --pack frontend-delivery   --json
 ```
 
 输出必须包括：
@@ -530,32 +530,32 @@ spec:
 
 ```bash
 # Skill 发现、治理
-skillforge init
-skillforge index [paths...]
-skillforge skills list
-skillforge skills show <id>
-skillforge skills lint
-skillforge packs list
+sloom init
+sloom index [paths...]
+sloom skills list
+sloom skills show <id>
+sloom skills lint
+sloom packs list
 
 # 路由与编排
-skillforge route "<task>" --repo . --pack frontend-delivery
-skillforge plan --task "<task>" --blueprint feature
-skillforge validate <plan.yaml>
-skillforge graph <plan.yaml> --format mermaid
+sloom route "<task>" --repo . --pack frontend-delivery
+sloom plan --task "<task>" --blueprint feature
+sloom validate <plan.yaml>
+sloom graph <plan.yaml> --format mermaid
 
 # 执行与人工控制
-skillforge run <plan.yaml> --dry-run
-skillforge run <plan.yaml> --executor claude-code
-skillforge approve <run-id> <gate-id>
-skillforge reject <run-id> <gate-id> --reason "..."
-skillforge replan <run-id> --from <node-id>
+sloom run <plan.yaml> --dry-run
+sloom run <plan.yaml> --executor claude-code
+sloom approve <run-id> <gate-id>
+sloom reject <run-id> <gate-id> --reason "..."
+sloom replan <run-id> --from <node-id>
 
 # 追踪与评估
-skillforge status <run-id>
-skillforge trace <run-id>
-skillforge artifacts <run-id>
-skillforge eval route --dataset evals/routing.jsonl
-skillforge eval plan --dataset evals/planning.jsonl
+sloom status <run-id>
+sloom trace <run-id>
+sloom artifacts <run-id>
+sloom eval route --dataset evals/routing.jsonl
+sloom eval plan --dataset evals/planning.jsonl
 ```
 
 ## 13. 开发路线
@@ -576,12 +576,12 @@ skillforge eval plan --dataset evals/planning.jsonl
 目标：让所有现有 Skill 可发现、可治理。
 
 - 扫描 `~/.claude/skills`、项目 Skill 目录、Codex/OpenCode Skill 目录
-- 解析 `SKILL.md` 与 `skillforge.yaml`
+- 解析 `SKILL.md` 与 `sloom.yaml`
 - 建立 SQLite Catalog 与内容 hash
 - 检测重复 ID、循环依赖、缺失 Artifact 生产者、权限冲突和版本冲突
 - 实现 `index`、`list`、`show`、`lint`
 
-验收：为 10 个高频 Skill 补齐 sidecar 后，`skillforge skills lint --strict` 可通过。
+验收：为 10 个高频 Skill 补齐 sidecar 后，`sloom skills lint --strict` 可通过。
 
 ### Phase 2：Router 与评估集
 
@@ -593,7 +593,7 @@ skillforge eval plan --dataset evals/planning.jsonl
 - 输出选中与排除理由
 - 手工标注 30 至 50 个真实研发任务作为 routing eval 集
 
-验收：Top-5 Recall、候选数量、误选率可通过 `skillforge eval route` 持续跟踪。
+验收：Top-5 Recall、候选数量、误选率可通过 `sloom eval route` 持续跟踪。
 
 ### Phase 3：Blueprint Planner 与 DAG Validator
 
@@ -661,13 +661,13 @@ MVP 必须具备：
 
 1. 建立 pnpm TypeScript monorepo
 2. 定义 Zod：`SkillManifest`、`Pack`、`Blueprint`、`WorkflowPlan`、`Artifact`
-3. 实现 `skillforge init`
-4. 实现 `skillforge index ~/.claude/skills ./skills`
+3. 实现 `sloom init`
+4. 实现 `sloom index ~/.claude/skills ./skills`
 5. 实现 `skills list/show/lint`
-6. 为 10 个最高频研发 Skill 添加 `skillforge.yaml`
+6. 为 10 个最高频研发 Skill 添加 `sloom.yaml`
 7. 写一个 `blueprints/bugfix.yaml`
 8. 实现静态依赖闭包：根据 `requires / inputs / outputs` 补齐节点
-9. 实现 `skillforge plan --no-llm`，输出 YAML 和 Mermaid
+9. 实现 `sloom plan --no-llm`，输出 YAML 和 Mermaid
 10. 为 10 个真实 bugfix 任务人工检查计划质量并记录问题
 
 第一周结束时，应已验证最关键的假设：**你的现有 Skill 能否被稳定地描述为可组合的 Artifact producer/consumer，而不是只能被大模型临场调用的 prompt 集合。**

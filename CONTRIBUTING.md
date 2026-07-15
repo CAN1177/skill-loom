@@ -23,6 +23,6 @@ node --test
 ## Adding a skill
 
 1. Add or reference an existing `SKILL.md`.
-2. Add `skillforge.json` with inputs, outputs, execution metadata, policy, and routing fields.
+2. Add `sloom.json` with inputs, outputs, execution metadata, policy, and routing fields.
 3. Run `sloom index <path>` and `sloom skills lint --strict`.
 4. Add the skill to a pack only when it is safe for that domain.

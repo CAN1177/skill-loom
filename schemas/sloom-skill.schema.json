@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://sloom.dev/schemas/skillforge.schema.json",
+  "$id": "https://sloom.dev/schemas/sloom-skill.schema.json",
   "title": "sLoom Skill Sidecar",
   "type": "object",
   "required": ["apiVersion", "kind", "metadata", "spec"],

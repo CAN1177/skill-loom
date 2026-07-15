@@ -4,8 +4,7 @@
   "description": "Skill-first orchestrator CLI.",
   "type": "module",
   "bin": {
-    "sloom": "bin/sloom.js",
-    "skillforge": "bin/sloom.js"
+    "sloom": "bin/sloom.js"
   },
   "license": "MIT",
   "engines": {

@@ -341,11 +341,11 @@ function readSkill(skillDir, root) {
 }
 
 function readSidecar(skillDir) {
-  const json = join(skillDir, 'skillforge.json');
+  const json = join(skillDir, 'sloom.json');
   if (existsSync(json)) return readJson(json);
-  const yaml = join(skillDir, 'skillforge.yaml');
+  const yaml = join(skillDir, 'sloom.yaml');
   if (existsSync(yaml)) return parseSimpleYaml(readFileSync(yaml, 'utf8'));
-  const yml = join(skillDir, 'skillforge.yml');
+  const yml = join(skillDir, 'sloom.yml');
   if (existsSync(yml)) return parseSimpleYaml(readFileSync(yml, 'utf8'));
   return { metadata: {}, spec: {} };
 }
@@ -372,7 +372,7 @@ function findSkillDirs(start) {
 }
 
 function parseSimpleYaml(text) {
-  // Tiny YAML subset parser for the sidecar examples used by sLoom. Prefer skillforge.json for complex metadata.
+  // Tiny YAML subset parser for the sidecar examples used by sLoom. Prefer sloom.json for complex metadata.
   const result = {};
   const stack = [{ indent: -1, value: result }];
   for (const raw of text.split(/\r?\n/)) {
