@@ -1,0 +1,77 @@
+{
+  "apiVersion": "sloom.dev/v1alpha1",
+  "kind": "SkillOverlay",
+  "metadata": {
+    "id": "repo.exploration",
+    "version": "1.0.0",
+    "title": "Repository Exploration",
+    "owners": [
+      "engineering-platform"
+    ],
+    "source": {
+      "type": "local-skill",
+      "path": "examples/skills/repo-exploration"
+    }
+  },
+  "spec": {
+    "intents": [
+      "feature",
+      "bugfix",
+      "refactor"
+    ],
+    "capabilities": [
+      "repo-analysis",
+      "codebase-map",
+      "read-only"
+    ],
+    "inputs": {
+      "required": [
+        "task.description"
+      ],
+      "optional": []
+    },
+    "outputs": [
+      "repo.context"
+    ],
+    "execution": {
+      "preferredExecutor": "shell",
+      "workspace": "current",
+      "timeoutMinutes": 10,
+      "parallelSafe": true
+    },
+    "policy": {
+      "risk": "low",
+      "permissions": [
+        "filesystem.read",
+        "shell.readonly"
+      ],
+      "denyCommands": [
+        "rm -rf",
+        "git push"
+      ]
+    },
+    "routing": {
+      "includeKeywords": [
+        "仓库",
+        "代码库",
+        "定位",
+        "排查",
+        "repo",
+        "investigate"
+      ],
+      "excludeKeywords": [],
+      "cost": "low",
+      "tags": [
+        "discovery",
+        "repo"
+      ]
+    },
+    "gates": {
+      "after": [
+        {
+          "artifact": "repo.context"
+        }
+      ]
+    }
+  }
+}

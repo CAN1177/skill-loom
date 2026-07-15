@@ -1,0 +1,84 @@
+{
+  "apiVersion": "sloom.dev/v1alpha1",
+  "kind": "SkillOverlay",
+  "metadata": {
+    "id": "architecture.decision",
+    "version": "1.0.0",
+    "title": "Architecture Decision",
+    "owners": [
+      "architecture"
+    ],
+    "source": {
+      "type": "local-skill",
+      "path": "examples/skills/architecture-decision"
+    }
+  },
+  "spec": {
+    "intents": [
+      "feature",
+      "refactor"
+    ],
+    "capabilities": [
+      "architecture",
+      "adr",
+      "design",
+      "risk-analysis"
+    ],
+    "inputs": {
+      "required": [
+        "repo.context",
+        "requirement.spec"
+      ],
+      "optional": []
+    },
+    "outputs": [
+      "architecture.decision",
+      "api.contract"
+    ],
+    "execution": {
+      "preferredExecutor": "claude-code",
+      "fallbackExecutors": [
+        "codex"
+      ],
+      "workspace": "current",
+      "timeoutMinutes": 30,
+      "parallelSafe": true
+    },
+    "policy": {
+      "risk": "low",
+      "permissions": [
+        "filesystem.read"
+      ],
+      "denyCommands": [
+        "rm -rf",
+        "git push"
+      ]
+    },
+    "routing": {
+      "includeKeywords": [
+        "架构",
+        "设计",
+        "接口",
+        "api",
+        "权限",
+        "RBAC",
+        "跨模块"
+      ],
+      "excludeKeywords": [
+        "小修复"
+      ],
+      "cost": "medium",
+      "tags": [
+        "design",
+        "architecture"
+      ]
+    },
+    "gates": {
+      "after": [
+        {
+          "artifact": "architecture.decision"
+        }
+      ]
+    }
+  }
+}

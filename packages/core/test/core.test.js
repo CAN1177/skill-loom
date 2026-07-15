@@ -8,6 +8,7 @@ import { createPlan, indexSkills, lintCatalog, readBlueprint, routeTask, validat
 test('indexes example skills and lints catalog', () => {
   const root = mkdtempSync(join(tmpdir(), 'sloom-test-'));
   cpSync(join(process.cwd(), 'examples'), join(root, 'examples'), { recursive: true });
+  cpSync(join(process.cwd(), 'packs'), join(root, 'packs'), { recursive: true });
   const catalog = indexSkills(['examples/skills'], root);
   assert.equal(catalog.skills.length, 6);
   const lint = lintCatalog(catalog);
@@ -17,6 +18,7 @@ test('indexes example skills and lints catalog', () => {
 test('routes and plans a bugfix DAG', () => {
   const root = mkdtempSync(join(tmpdir(), 'sloom-test-'));
   cpSync(join(process.cwd(), 'examples'), join(root, 'examples'), { recursive: true });
+  cpSync(join(process.cwd(), 'packs'), join(root, 'packs'), { recursive: true });
   cpSync(join(process.cwd(), 'blueprints'), join(root, 'blueprints'), { recursive: true });
   const catalog = indexSkills(['examples/skills'], root);
   const task = '修复资源列表搜索为空时报错';

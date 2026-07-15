@@ -37,7 +37,7 @@ sLoom 的目标不是再造一个“大而全 Agent”，而是把这些已有 S
 这个仓库目前是第一个开源 MVP scaffold，已经包含：
 
 - 零依赖 Node.js 22 CLI
-- `SKILL.md` + `sloom.json` 本地索引器
+- `SKILL.md` + 非侵入式 metadata overlay 本地索引器
 - Catalog linter
 - 带 Pack 过滤的 lexical router
 - bugfix / feature Blueprints
@@ -87,32 +87,44 @@ packages/
   cli/               CLI 入口
 blueprints/          bugfix、feature 等工作流骨架
 packs/               面向场景的 Skill 集合和路由策略
-schemas/             sidecar 和 plan 的 JSON Schemas
+schemas/             metadata overlay 和 plan 的 JSON Schemas
 examples/            示例 Skills 和 Plans
 docs/                架构说明和路线图
 ```
 
-## Skill sidecar
+## Skill metadata overlay
 
-sLoom 不要求重写已有 `SKILL.md`。只需要在每个 Skill 旁边增加一个 sidecar 文件：
+sLoom 默认不应该修改你已有的本地 Skill。`SKILL.md` 目录应被视为只读资产，编排元数据放在 sLoom 工作区或 Pack 中：
 
 ```text
-my-skill/
+# 已存在的 Skill，只读
+~/.claude/skills/my-skill/
   SKILL.md
-  sloom.json
+
+# sLoom 管理的项目级编排元数据
+.sloom/overlays/skills/implementation.targeted-fix.json
+
+# 或团队/开源共享 Pack 中的 overlay
+packs/frontend-delivery/skills/implementation.targeted-fix.json
 ```
 
-一个最小 sidecar 示例：
+同目录 `sloom.json` 仍然可以支持，但它只适合 Skill 作者主动随 Skill 发布便携元数据的场景；不应该作为治理既有本地 Skill 的默认方式。
+
+一个最小 overlay 示例：
 
 ```json
 {
   "apiVersion": "sloom.dev/v1alpha1",
-  "kind": "Skill",
+  "kind": "SkillOverlay",
   "metadata": {
     "id": "implementation.targeted-fix",
     "version": "1.0.0",
     "title": "Targeted Fix Implementation",
-    "skillPath": "examples/skills/targeted-fix"
+    "source": {
+      "type": "local-skill",
+      "path": "examples/skills/targeted-fix",
+      "fingerprint": "sha256:..."
+    }
   },
   "spec": {
     "intents": ["bugfix", "feature"],
@@ -126,7 +138,7 @@ my-skill/
 }
 ```
 
-sidecar 描述的是：这个 Skill 适合什么任务、需要什么输入、会产出什么 Artifact、应该用哪个执行器、有哪些权限边界和质量门。
+overlay 描述的是：这个 Skill 适合什么任务、需要什么输入、会产出什么 Artifact、应该用哪个执行器、有哪些权限边界和质量门。
 
 ## 设计原则
 
@@ -174,7 +186,7 @@ Skill 选择、计划生成、权限策略和质量门属于 sLoom Core；执行
 
 - 用 SQLite + FTS5 替换 JSON Catalog
 - 增强 schema validation
-- 支持 plans 和 sidecars 的 YAML round-trip
+- 支持 plans 和 metadata overlays 的 YAML round-trip
 - 实现带 command policy checks 的 Shell executor
 - 增加 Claude Code executor adapter
 - 增加 git worktree 隔离和可恢复 run state

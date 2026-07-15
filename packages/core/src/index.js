@@ -10,6 +10,7 @@ export function ensureSloom(root = process.cwd()) {
   mkdirSync(dir, { recursive: true });
   mkdirSync(join(dir, 'plans'), { recursive: true });
   mkdirSync(join(dir, 'runs'), { recursive: true });
+  mkdirSync(join(dir, 'overlays', 'skills'), { recursive: true });
   if (!existsSync(join(root, 'sloom.config.json'))) {
     writeJson(join(root, 'sloom.config.json'), {
       $schema: './schemas/sloom.config.schema.json',
@@ -47,11 +48,12 @@ export function writeCatalog(catalog, root = process.cwd()) {
 export function indexSkills(paths, root = process.cwd()) {
   ensureSloom(root);
   const discovered = [];
+  const overlays = readSkillOverlays(root);
   for (const input of paths.length ? paths : readConfig(root).skillPaths ?? ['./examples/skills']) {
     const absolute = expandHome(resolveMaybe(root, input));
     if (!existsSync(absolute)) continue;
     for (const skillDir of findSkillDirs(absolute)) {
-      discovered.push(readSkill(skillDir, root));
+      discovered.push(readSkill(skillDir, root, overlays));
     }
   }
   const byId = new Map();
@@ -310,23 +312,33 @@ export function writeJson(file, value) {
   writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
 }
 
-function readSkill(skillDir, root) {
+function readSkill(skillDir, root, overlays = { bySourcePath: new Map(), byId: new Map() }) {
   const skillMd = join(skillDir, 'SKILL.md');
   const content = readFileSync(skillMd, 'utf8');
-  const sidecar = readSidecar(skillDir);
   const titleFromMd = (content.match(/^#\s+(.+)$/m)?.[1] ?? basename(skillDir)).trim();
-  const metadata = sidecar.metadata ?? {};
-  const spec = sidecar.spec ?? {};
-  const id = metadata.id ?? slugify(titleFromMd || basename(skillDir));
+  const inferredId = slugify(titleFromMd || basename(skillDir));
+  const sidecar = readSidecar(skillDir);
+  const sidecarId = sidecar.metadata?.id;
+  const overlay = mergeOverlays(
+    overlays.byId.get(inferredId),
+    sidecarId ? overlays.byId.get(sidecarId) : null,
+    overlays.bySourcePath.get(normalizePathKey(skillDir)),
+    overlays.bySourcePath.get(normalizePathKey(relative(root, skillDir)))
+  );
+  const descriptor = mergeDeep(mergeDeep({ metadata: {}, spec: {} }, sidecar), overlay);
+  const metadata = descriptor.metadata ?? {};
+  const spec = descriptor.spec ?? {};
+  const id = metadata.id ?? sidecarId ?? inferredId;
   return {
     id,
     version: metadata.version ?? '0.0.0-local',
     title: metadata.title ?? titleFromMd,
-    skillPath: metadata.skillPath ?? relative(root, skillDir),
+    skillPath: metadata.skillPath ?? metadata.source?.path ?? relative(root, skillDir),
     absolutePath: skillDir,
     owners: metadata.owners ?? [],
     summary: summarizeMarkdown(content),
-    hash: sha256(content + JSON.stringify(sidecar)),
+    hash: sha256(content + JSON.stringify(descriptor)),
+    source: metadata.source ?? { type: 'local-skill', path: relative(root, skillDir) },
     intents: spec.intents ?? [],
     capabilities: spec.capabilities ?? [],
     inputs: spec.inputs ?? { required: [], optional: [] },
@@ -338,6 +350,78 @@ function readSkill(skillDir, root) {
     gates: spec.gates ?? {},
     tags: spec.routing?.tags ?? []
   };
+}
+
+function readSkillOverlays(root) {
+  const overlays = [];
+  for (const dir of [join(root, 'packs'), join(root, SLOOM_DIR, 'overlays', 'skills')]) {
+    for (const file of findMetadataFiles(dir)) {
+      const value = readMetadataFile(file);
+      if (value) overlays.push(value);
+    }
+  }
+
+  const byId = new Map();
+  const bySourcePath = new Map();
+  for (const overlay of overlays) {
+    const id = overlay.metadata?.id;
+    if (id) byId.set(id, mergeDeep(byId.get(id) ?? {}, overlay));
+    const sourcePath = overlay.metadata?.source?.path ?? overlay.metadata?.skillPath;
+    if (sourcePath) bySourcePath.set(normalizePathKey(resolveMaybe(root, sourcePath)), mergeDeep(bySourcePath.get(normalizePathKey(resolveMaybe(root, sourcePath))) ?? {}, overlay));
+    if (sourcePath) bySourcePath.set(normalizePathKey(sourcePath), mergeDeep(bySourcePath.get(normalizePathKey(sourcePath)) ?? {}, overlay));
+  }
+  return { byId, bySourcePath };
+}
+
+function findMetadataFiles(start) {
+  const out = [];
+  if (!existsSync(start)) return out;
+  const stack = [start];
+  while (stack.length) {
+    const dir = stack.pop();
+    let entries;
+    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+    for (const entry of entries) {
+      const file = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (!entry.name.startsWith('.')) stack.push(file);
+        continue;
+      }
+      if (entry.isFile() && /^.+\.(json|ya?ml)$/.test(entry.name) && entry.name !== 'pack.json') out.push(file);
+    }
+  }
+  return out.sort();
+}
+
+function readMetadataFile(file) {
+  try {
+    const value = extname(file) === '.json' ? readJson(file) : parseSimpleYaml(readFileSync(file, 'utf8'));
+    if (['Skill', 'SkillOverlay'].includes(value.kind)) return value;
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function mergeOverlays(...items) {
+  return items.filter(Boolean).reduce((acc, item) => mergeDeep(acc, item), {});
+}
+
+function mergeDeep(base, override) {
+  if (!isPlainObject(base) || !isPlainObject(override)) return override ?? base;
+  const result = { ...base };
+  for (const [key, value] of Object.entries(override)) {
+    result[key] = isPlainObject(value) && isPlainObject(result[key]) ? mergeDeep(result[key], value) : value;
+  }
+  return result;
+}
+
+function isPlainObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizePathKey(value) {
+  return String(value ?? '').replace(/\\/g, '/').replace(/\/$/, '');
 }
 
 function readSidecar(skillDir) {
@@ -372,7 +456,7 @@ function findSkillDirs(start) {
 }
 
 function parseSimpleYaml(text) {
-  // Tiny YAML subset parser for the sidecar examples used by sLoom. Prefer sloom.json for complex metadata.
+  // Tiny YAML subset parser for metadata overlay examples used by sLoom. Prefer JSON for complex metadata.
   const result = {};
   const stack = [{ indent: -1, value: result }];
   for (const raw of text.split(/\r?\n/)) {

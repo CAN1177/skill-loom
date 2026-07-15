@@ -1,0 +1,81 @@
+{
+  "apiVersion": "sloom.dev/v1alpha1",
+  "kind": "SkillOverlay",
+  "metadata": {
+    "id": "review.code",
+    "version": "1.0.0",
+    "title": "Code Review",
+    "owners": [
+      "engineering"
+    ],
+    "source": {
+      "type": "local-skill",
+      "path": "examples/skills/review-code"
+    }
+  },
+  "spec": {
+    "intents": [
+      "bugfix",
+      "feature",
+      "refactor"
+    ],
+    "capabilities": [
+      "code-review",
+      "risk-review",
+      "quality-gate"
+    ],
+    "inputs": {
+      "required": [
+        "source.diff",
+        "test-report"
+      ],
+      "optional": [
+        "implementation.summary",
+        "requirement.spec"
+      ]
+    },
+    "outputs": [
+      "review-result"
+    ],
+    "execution": {
+      "preferredExecutor": "codex",
+      "fallbackExecutors": [
+        "claude-code"
+      ],
+      "workspace": "current",
+      "timeoutMinutes": 20,
+      "parallelSafe": true
+    },
+    "policy": {
+      "risk": "low",
+      "permissions": [
+        "filesystem.read"
+      ],
+      "denyCommands": [
+        "rm -rf",
+        "git push"
+      ]
+    },
+    "routing": {
+      "includeKeywords": [
+        "review",
+        "审核",
+        "检查",
+        "质量"
+      ],
+      "excludeKeywords": [],
+      "cost": "low",
+      "tags": [
+        "review",
+        "quality-gate"
+      ]
+    },
+    "gates": {
+      "after": [
+        {
+          "artifact": "review-result"
+        }
+      ]
+    }
+  }
+}

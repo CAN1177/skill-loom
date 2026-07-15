@@ -23,7 +23,7 @@ Task / Issue
 This repository contains the first open-source MVP scaffold:
 
 - zero-dependency Node.js 22 CLI
-- local skill indexer for `SKILL.md` + `sloom.json`
+- local skill indexer for `SKILL.md` plus non-invasive metadata overlays
 - catalog linter
 - lexical router with pack filtering
 - bugfix / feature blueprints
@@ -73,32 +73,44 @@ packages/
   cli/               command-line entry point
 blueprints/          workflow skeletons: bugfix, feature
 packs/               curated skill sets and routing policies
-schemas/             JSON Schemas for sidecars and plans
+schemas/             JSON Schemas for metadata overlays and plans
 examples/            example skills and plans
 docs/                architecture notes and roadmap
 ```
 
-## Skill sidecar
+## Skill metadata overlay
 
-sLoom does not require rewriting existing `SKILL.md` files. Add a sidecar next to each skill:
+sLoom should not mutate your existing local skills by default. Treat `SKILL.md` directories as read-only source assets, then store orchestration metadata in the project workspace or in a pack:
 
 ```text
-my-skill/
+# Existing skill, read-only
+~/.claude/skills/my-skill/
   SKILL.md
-  sloom.json
+
+# sLoom-owned orchestration metadata
+.sloom/overlays/skills/implementation.targeted-fix.json
+
+# Or a shared/open-source pack overlay
+packs/frontend-delivery/skills/implementation.targeted-fix.json
 ```
 
-Minimal sidecar shape:
+A same-directory `sloom.json` remains supported only as an optional portable metadata file when the skill author intentionally ships it with the skill. It is not the default governance model for existing local skills.
+
+Minimal overlay shape:
 
 ```json
 {
   "apiVersion": "sloom.dev/v1alpha1",
-  "kind": "Skill",
+  "kind": "SkillOverlay",
   "metadata": {
     "id": "implementation.targeted-fix",
     "version": "1.0.0",
     "title": "Targeted Fix Implementation",
-    "skillPath": "examples/skills/targeted-fix"
+    "source": {
+      "type": "local-skill",
+      "path": "examples/skills/targeted-fix",
+      "fingerprint": "sha256:..."
+    }
   },
   "spec": {
     "intents": ["bugfix", "feature"],
@@ -126,7 +138,7 @@ See [`docs/roadmap.md`](docs/roadmap.md) for the full plan. The next implementat
 
 - replace JSON catalog with SQLite + FTS5
 - add stricter schema validation
-- support YAML round-trip for plans and sidecars
+- support YAML round-trip for plans and metadata overlays
 - implement shell executor with command policy checks
 - add Claude Code executor adapter
 - add git worktree isolation and resumable run state

@@ -1,0 +1,82 @@
+{
+  "apiVersion": "sloom.dev/v1alpha1",
+  "kind": "SkillOverlay",
+  "metadata": {
+    "id": "test.regression",
+    "version": "1.0.0",
+    "title": "Regression Test",
+    "owners": [
+      "quality-engineering"
+    ],
+    "source": {
+      "type": "local-skill",
+      "path": "examples/skills/regression-test"
+    }
+  },
+  "spec": {
+    "intents": [
+      "bugfix",
+      "feature",
+      "refactor"
+    ],
+    "capabilities": [
+      "testing",
+      "regression",
+      "lint",
+      "unit-test"
+    ],
+    "inputs": {
+      "required": [
+        "source.diff"
+      ],
+      "optional": [
+        "implementation.summary"
+      ]
+    },
+    "outputs": [
+      "test-report"
+    ],
+    "execution": {
+      "preferredExecutor": "shell",
+      "fallbackExecutors": [
+        "claude-code"
+      ],
+      "workspace": "current",
+      "timeoutMinutes": 30,
+      "parallelSafe": false
+    },
+    "policy": {
+      "risk": "low",
+      "permissions": [
+        "shell.test",
+        "filesystem.read"
+      ],
+      "denyCommands": [
+        "rm -rf",
+        "git push"
+      ]
+    },
+    "routing": {
+      "includeKeywords": [
+        "测试",
+        "验证",
+        "回归",
+        "test",
+        "lint"
+      ],
+      "excludeKeywords": [],
+      "cost": "low",
+      "tags": [
+        "verification",
+        "test"
+      ]
+    },
+    "gates": {
+      "after": [
+        {
+          "artifact": "test-report"
+        }
+      ]
+    }
+  }
+}

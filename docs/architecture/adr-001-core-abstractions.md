@@ -14,7 +14,7 @@ The team has many useful engineering skills, but they are scattered as meta-skil
 
 sLoom separates the system into stable abstractions:
 
-- **Skill**: reusable capability unit described by `SKILL.md` plus sidecar metadata.
+- **Skill**: reusable capability unit described by `SKILL.md`; sLoom adds non-invasive metadata overlays in `.sloom/overlays` or packs. Same-directory sidecars are optional only when a skill author intentionally ships portable metadata.
 - **Pack**: curated skill set and routing policy for a domain.
 - **Blueprint**: workflow skeleton describing phases, artifacts, and gates.
 - **Router**: recalls candidate skills from the catalog.
@@ -28,7 +28,7 @@ Skill selection belongs to sLoom's catalog/router/planner layer, not to a multi-
 
 ## Consequences
 
-- Existing skills can be reused without rewriting prompts.
+- Existing skills can be reused without rewriting prompts or mutating their directories.
 - Plans can be reviewed, diffed, validated, and approved before execution.
 - Failure recovery becomes explicit: rerun a node, resume from artifacts, or replan.
 - The MVP can start deterministic and local, then add LLM rerank and multi-agent execution later.

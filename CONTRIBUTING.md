@@ -23,6 +23,7 @@ node --test
 ## Adding a skill
 
 1. Add or reference an existing `SKILL.md`.
-2. Add `sloom.json` with inputs, outputs, execution metadata, policy, and routing fields.
-3. Run `sloom index <path>` and `sloom skills lint --strict`.
-4. Add the skill to a pack only when it is safe for that domain.
+2. Prefer a non-invasive metadata overlay under `.sloom/overlays/skills/` or `packs/<pack>/skills/` with inputs, outputs, execution metadata, policy, and routing fields.
+3. Use a same-directory `sloom.json` only when you own the skill and intentionally want to ship portable metadata with it.
+4. Run `sloom index <path>` and `sloom skills lint --strict`.
+5. Add the skill to a pack only when it is safe for that domain.

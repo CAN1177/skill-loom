@@ -1,15 +1,15 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://sloom.dev/schemas/sloom-skill.schema.json",
-  "title": "sLoom Skill Sidecar",
+  "title": "sLoom Skill Metadata Overlay",
   "type": "object",
   "required": ["apiVersion", "kind", "metadata", "spec"],
   "properties": {
     "apiVersion": { "const": "sloom.dev/v1alpha1" },
-    "kind": { "const": "Skill" },
+    "kind": { "enum": ["Skill", "SkillOverlay"] },
     "metadata": {
       "type": "object",
-      "required": ["id", "version", "title", "skillPath"],
+      "required": ["id", "version", "title"],
       "properties": {
         "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]*$" },
         "version": { "type": "string" },
