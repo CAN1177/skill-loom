@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, extname, join, relative, resolve } from 'node:path';
@@ -498,20 +499,21 @@ export function runWorkflowPlan(plan, catalog, root = process.cwd(), options = {
   if (!validation.ok) throw new Error(`Invalid workflow plan: ${validation.errors.join('; ')}`);
 
   const dryRun = options.dryRun ?? false;
+  const executorMode = normalizeExecutorMode(options.executorMode ?? options.executor ?? 'local');
   const now = new Date().toISOString();
   const runId = options.runId ?? makeRunId(plan);
   const runDir = join(root, SLOOM_DIR, 'runs', runId);
   mkdirSync(join(runDir, 'artifacts'), { recursive: true });
   mkdirSync(join(runDir, 'logs'), { recursive: true });
 
-  const state = createInitialRunState(plan, runId, now, dryRun);
+  const state = createInitialRunState(plan, runId, now, dryRun, executorMode);
   const manifest = createInitialArtifactManifest(plan, runDir, root, now);
   writeJson(join(runDir, 'plan.lock.json'), plan);
   writeRunState(runDir, state);
   writeArtifactManifest(runDir, manifest);
   appendRunEvent(runDir, { type: dryRun ? 'run.dry_started' : 'run.started', runId, planId: plan.metadata?.id });
 
-  const result = executeRunState({ state, manifest, plan, catalog, root, runDir, dryRun, maxNodes: numberOption(options.maxNodes) });
+  const result = executeRunState({ state, manifest, plan, catalog, root, runDir, dryRun, maxNodes: numberOption(options.maxNodes), executorMode, shellCommands: options.shellCommands });
   return summarizeRunResult(result.state, root, runDir);
 }
 
@@ -526,18 +528,68 @@ export function resumeWorkflowRun(runId, catalog, root = process.cwd(), options 
   const plan = readJson(planFile);
   const manifest = existsSync(join(runDir, 'artifacts', 'manifest.json')) ? readJson(join(runDir, 'artifacts', 'manifest.json')) : createInitialArtifactManifest(plan, runDir, root, new Date().toISOString());
 
+  const executorMode = normalizeExecutorMode(options.executorMode ?? options.executor ?? state.execution?.mode ?? 'local');
+  state.execution = { ...(state.execution ?? {}), mode: executorMode };
   for (const node of state.nodes ?? []) {
     if (['running', 'failed', 'blocked', 'paused'].includes(node.status)) node.status = 'pending';
   }
   state.status = 'running';
   state.resumedAt = new Date().toISOString();
   appendRunEvent(runDir, { type: 'run.resumed', runId });
-  const result = executeRunState({ state, manifest, plan, catalog, root, runDir, dryRun: false, maxNodes: numberOption(options.maxNodes) });
+  const result = executeRunState({ state, manifest, plan, catalog, root, runDir, dryRun: false, maxNodes: numberOption(options.maxNodes), executorMode, shellCommands: options.shellCommands });
   return summarizeRunResult(result.state, root, runDir);
 }
 
 export function readRunState(runId, root = process.cwd()) {
   return readJson(join(root, SLOOM_DIR, 'runs', runId, 'run-state.json'));
+}
+
+export function submitRunArtifact(runId, nodeId, artifactName, sourceFile, catalog, root = process.cwd(), options = {}) {
+  if (!runId || !nodeId || !artifactName || !sourceFile) throw new Error('runId, nodeId, artifactName, and sourceFile are required');
+  const runDir = join(root, SLOOM_DIR, 'runs', runId);
+  const stateFile = join(runDir, 'run-state.json');
+  const planFile = join(runDir, 'plan.lock.json');
+  if (!existsSync(stateFile)) throw new Error(`Run state not found: ${join(SLOOM_DIR, 'runs', runId, 'run-state.json')}`);
+  if (!existsSync(planFile)) throw new Error(`Plan lock not found: ${join(SLOOM_DIR, 'runs', runId, 'plan.lock.json')}`);
+  const source = resolveMaybe(root, sourceFile);
+  if (!existsSync(source)) throw new Error(`Artifact source not found: ${sourceFile}`);
+  const state = readJson(stateFile);
+  const plan = readJson(planFile);
+  const manifest = existsSync(join(runDir, 'artifacts', 'manifest.json')) ? readJson(join(runDir, 'artifacts', 'manifest.json')) : createInitialArtifactManifest(plan, runDir, root, new Date().toISOString());
+  const node = (plan.spec?.nodes ?? []).find(item => item.id === nodeId);
+  if (!node) throw new Error(`Node not found in plan: ${nodeId}`);
+  if (!(node.outputs ?? []).includes(artifactName)) throw new Error(`Node ${nodeId} does not declare output '${artifactName}'`);
+  const nodeState = (state.nodes ?? []).find(item => item.id === nodeId);
+  if (!nodeState) throw new Error(`Node not found in run state: ${nodeId}`);
+  const skill = (catalog.skills ?? []).find(item => item.id === node.skill) ?? { id: node.skill, title: node.skill };
+  const content = readFileSync(source, 'utf8');
+  const status = options.status ?? inferArtifactStatus(content, artifactName);
+  const record = writeArtifactRecord({
+    manifest,
+    root,
+    runDir,
+    node,
+    skill,
+    outputName: artifactName,
+    content,
+    metadata: { status, title: artifactTitle(artifactName), executor: options.executor ?? node.executor ?? 'agent', submittedFrom: relative(root, source) },
+    executor: options.executor ?? node.executor ?? 'agent'
+  });
+  nodeState.artifacts = [...new Set([...(nodeState.artifacts ?? []), record.path])];
+  const producedByNode = new Set((manifest.artifacts ?? []).filter(item => item.node === nodeId).map(item => item.name));
+  if ((node.outputs ?? []).every(name => producedByNode.has(name))) {
+    nodeState.status = 'succeeded';
+    nodeState.finishedAt = new Date().toISOString();
+    delete nodeState.handoff;
+    delete nodeState.error;
+  }
+  state.status = (state.nodes ?? []).some(item => item.status === 'handoff-ready') ? 'paused' : state.status;
+  state.updatedAt = new Date().toISOString();
+  manifest.generatedAt = state.updatedAt;
+  writeRunState(runDir, state);
+  writeArtifactManifest(runDir, manifest);
+  appendRunEvent(runDir, { type: 'artifact.submitted', runId, node: nodeId, artifact: artifactName, path: record.path, status });
+  return { runId, nodeId, artifact: record, nodeStatus: nodeState.status, runStatus: state.status };
 }
 
 export function listRuns(root = process.cwd()) {
@@ -555,7 +607,7 @@ export function listRuns(root = process.cwd()) {
     .sort((a, b) => String(b.updatedAt ?? b.id).localeCompare(String(a.updatedAt ?? a.id)));
 }
 
-function executeRunState({ state, manifest, plan, catalog, root, runDir, dryRun, maxNodes = Infinity }) {
+function executeRunState({ state, manifest, plan, catalog, root, runDir, dryRun, maxNodes = Infinity, executorMode = 'local', shellCommands = null }) {
   const ordered = topologicalSort(plan.spec?.nodes ?? []);
   const stateById = new Map((state.nodes ?? []).map(node => [node.id, node]));
   const skillById = new Map((catalog.skills ?? []).map(skill => [skill.id, skill]));
@@ -568,6 +620,10 @@ function executeRunState({ state, manifest, plan, catalog, root, runDir, dryRun,
     const nodeState = stateById.get(node.id);
     if (!nodeState) continue;
     if (nodeState.status === 'succeeded') continue;
+    if (nodeState.status === 'handoff-ready') {
+      paused = true;
+      break;
+    }
     if (executed >= maxNodes) {
       paused = true;
       break;
@@ -592,16 +648,30 @@ function executeRunState({ state, manifest, plan, catalog, root, runDir, dryRun,
       appendRunEvent(runDir, { type: 'node.dry_finished', node: node.id });
     } else {
       const skill = skillById.get(node.skill) ?? { id: node.skill, title: node.skill };
-      const outputs = executeDeterministicNode({ node, skill, plan, manifest, root, runDir });
-      nodeState.artifacts = outputs.map(record => record.path);
-      nodeState.finishedAt = new Date().toISOString();
-      nodeState.status = 'succeeded';
-      appendRunEvent(runDir, { type: 'node.succeeded', node: node.id, artifacts: nodeState.artifacts });
+      const result = executeNodeWithAdapter({ node, skill, plan, manifest, root, runDir, executorMode, shellCommands });
+      nodeState.artifacts = result.outputs?.map(record => record.path) ?? [];
+      if (result.status === 'handoff-ready') {
+        nodeState.status = 'handoff-ready';
+        nodeState.handoff = result.handoff;
+        nodeState.finishedAt = null;
+        paused = true;
+        appendRunEvent(runDir, { type: 'node.handoff_ready', node: node.id, executor: node.executor, handoff: result.handoff });
+      } else if (result.status === 'failed') {
+        nodeState.status = 'failed';
+        nodeState.finishedAt = new Date().toISOString();
+        nodeState.error = result.error ?? 'executor failed';
+        appendRunEvent(runDir, { type: 'node.failed', node: node.id, error: nodeState.error, artifacts: nodeState.artifacts });
+      } else {
+        nodeState.finishedAt = new Date().toISOString();
+        nodeState.status = 'succeeded';
+        appendRunEvent(runDir, { type: 'node.succeeded', node: node.id, executor: result.executor, artifacts: nodeState.artifacts });
+      }
     }
     executed += 1;
     state.updatedAt = new Date().toISOString();
     writeRunState(runDir, state);
     writeArtifactManifest(runDir, manifest);
+    if (paused) break;
   }
 
   if (paused) {
@@ -625,31 +695,286 @@ function executeRunState({ state, manifest, plan, catalog, root, runDir, dryRun,
   return { state, manifest };
 }
 
-function executeDeterministicNode({ node, skill, plan, manifest, root, runDir }) {
+
+function selectExecutorAdapter({ node, skill, executorMode }) {
+  if (executorMode === 'local') return 'local';
+  const preferred = node.executor ?? skill.execution?.preferredExecutor ?? 'manual';
+  if (executorMode === 'auto') {
+    if (preferred === 'shell' && hasShellPermission(skill)) return 'shell';
+    if (isAgentExecutor(preferred)) return 'handoff';
+    return 'local';
+  }
+  if (executorMode === 'shell') return preferred === 'shell' && hasShellPermission(skill) ? 'shell' : 'local';
+  if (executorMode === 'handoff') return isAgentExecutor(preferred) ? 'handoff' : 'local';
+  return 'local';
+}
+
+function executeShellNode({ node, skill, plan, manifest, root, runDir, shellCommands }) {
+  const permissions = skill.policy?.permissions ?? [];
+  if (!hasShellPermission(skill)) return { status: 'failed', executor: 'shell', outputs: [], error: `Skill ${skill.id} does not allow shell execution` };
+  const commands = commandsForShellNode({ node, skill, root, shellCommands });
+  const denied = commands.find(command => !isAllowedShellCommand(command, permissions, skill.policy?.denyCommands ?? []));
+  if (denied) return { status: 'failed', executor: 'shell', outputs: [], error: `Command is not allowed by sLoom safe shell policy: ${formatCommand(denied)}` };
+
+  const startedAt = new Date().toISOString();
+  const results = commands.map(command => runSafeCommand(command, root, skill.execution?.timeoutMinutes));
+  const allPassed = results.every(result => result.status === 0);
+  const inputArtifacts = resolveInputArtifacts(node.inputs ?? [], manifest);
+  const outputs = [];
+  for (const outputName of node.outputs ?? []) {
+    const status = outputName === 'test-report' ? (allPassed ? 'passed' : 'failed') : 'generated';
+    const content = renderShellArtifact({ outputName, node, skill, plan, inputArtifacts, commands: results, status, startedAt, root });
+    outputs.push(writeArtifactRecord({ manifest, root, runDir, node, skill, outputName, content, metadata: { status, title: artifactTitle(outputName), executor: 'shell', commands: results.map(commandSummary) }, executor: 'shell' }));
+  }
+  manifest.generatedAt = new Date().toISOString();
+  return { status: allPassed ? 'succeeded' : 'failed', executor: 'shell', outputs, error: allPassed ? null : 'one or more safe shell commands failed' };
+}
+
+function executeHandoffNode({ node, skill, plan, manifest, root, runDir }) {
+  const inputArtifacts = resolveInputArtifacts(node.inputs ?? [], manifest);
+  const handoffDir = join(runDir, 'handoffs', safePathSegment(node.id));
+  mkdirSync(handoffDir, { recursive: true });
+  const expectedOutputs = (node.outputs ?? []).map(name => ({ name, suggestedFile: join('artifacts', safePathSegment(node.id), `${safePathSegment(name)}.md`) }));
+  const inputs = inputArtifacts.map(item => ({ name: item.name, path: item.path, checksum: item.checksum, metadata: item.metadata ?? {} }));
+  const taskMd = renderHandoffTask({ node, skill, plan, inputs, expectedOutputs, root });
+  writeFileSync(join(handoffDir, 'task.md'), taskMd);
+  writeJson(join(handoffDir, 'inputs.json'), { apiVersion: 'sloom.dev/v1alpha1', kind: 'AgentHandoffInputs', node: node.id, inputs });
+  writeJson(join(handoffDir, 'expected-outputs.json'), { apiVersion: 'sloom.dev/v1alpha1', kind: 'AgentHandoffExpectedOutputs', node: node.id, outputs: expectedOutputs });
+  return {
+    status: 'handoff-ready',
+    executor: 'handoff',
+    outputs: [],
+    handoff: {
+      executor: node.executor ?? skill.execution?.preferredExecutor ?? 'agent',
+      task: relative(root, join(handoffDir, 'task.md')),
+      inputs: relative(root, join(handoffDir, 'inputs.json')),
+      expectedOutputs: relative(root, join(handoffDir, 'expected-outputs.json'))
+    }
+  };
+}
+
+function executeNodeWithAdapter({ node, skill, plan, manifest, root, runDir, executorMode, shellCommands }) {
+  const adapter = selectExecutorAdapter({ node, skill, executorMode });
+  if (adapter === 'shell') return executeShellNode({ node, skill, plan, manifest, root, runDir, shellCommands });
+  if (adapter === 'handoff') return executeHandoffNode({ node, skill, plan, manifest, root, runDir });
+  const outputs = executeDeterministicNode({ node, skill, plan, manifest, root, runDir, adapter: 'local' });
+  return { status: 'succeeded', executor: 'local', outputs };
+}
+
+function executeDeterministicNode({ node, skill, plan, manifest, root, runDir, adapter = 'local' }) {
   const inputArtifacts = resolveInputArtifacts(node.inputs ?? [], manifest);
   const outputs = [];
   for (const outputName of node.outputs ?? []) {
     const artifact = renderArtifact({ outputName, node, skill, plan, inputArtifacts });
-    const file = join(runDir, 'artifacts', safePathSegment(node.id), `${safePathSegment(outputName)}.md`);
-    mkdirSync(dirname(file), { recursive: true });
-    writeFileSync(file, artifact.content);
-    const record = {
-      name: outputName,
-      path: relative(root, file),
-      checksum: `sha256:${sha256(artifact.content)}`,
-      node: node.id,
-      skill: node.skill,
-      executor: node.executor,
-      attempt: 1,
-      createdAt: new Date().toISOString(),
-      inputs: inputArtifacts.map(item => ({ name: item.name, path: item.path, checksum: item.checksum })),
-      metadata: artifact.metadata
-    };
-    manifest.artifacts.push(record);
-    outputs.push(record);
+    outputs.push(writeArtifactRecord({ manifest, root, runDir, node, skill, outputName, content: artifact.content, metadata: artifact.metadata, executor: adapter, inputs: inputArtifacts }));
   }
   manifest.generatedAt = new Date().toISOString();
   return outputs;
+}
+
+function writeArtifactRecord({ manifest, root, runDir, node, skill, outputName, content, metadata, executor, inputs = null }) {
+  const inputArtifacts = inputs ?? resolveInputArtifacts(node.inputs ?? [], manifest);
+  const file = join(runDir, 'artifacts', safePathSegment(node.id), `${safePathSegment(outputName)}.md`);
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, content);
+  const record = {
+    name: outputName,
+    path: relative(root, file),
+    checksum: `sha256:${sha256(content)}`,
+    node: node.id,
+    skill: skill.id ?? node.skill,
+    executor,
+    attempt: 1,
+    createdAt: new Date().toISOString(),
+    inputs: inputArtifacts.map(item => ({ name: item.name, path: item.path, checksum: item.checksum })),
+    metadata
+  };
+  manifest.artifacts.push(record);
+  return record;
+}
+
+function normalizeExecutorMode(value) {
+  const mode = String(value ?? 'local').toLowerCase();
+  if (['local', 'auto', 'shell', 'handoff'].includes(mode)) return mode;
+  return 'local';
+}
+
+function hasShellPermission(skill) {
+  const permissions = skill.policy?.permissions ?? [];
+  return permissions.includes('shell.readonly') || permissions.includes('shell.test');
+}
+
+function isAgentExecutor(executor) {
+  return ['codex', 'claude', 'claude-code', 'agent', 'human'].includes(String(executor ?? '').toLowerCase());
+}
+
+function commandsForShellNode({ node, skill, root, shellCommands }) {
+  const keyed = shellCommands?.[node.id] ?? shellCommands?.[skill.id];
+  if (Array.isArray(keyed)) return normalizeShellCommands(keyed);
+  if ((node.outputs ?? []).includes('test-report')) {
+    if (existsSync(join(root, 'package.json'))) return [{ command: 'npm', args: ['test'] }];
+    return [{ command: process.execPath, args: ['--version'] }];
+  }
+  if ((node.outputs ?? []).includes('repo.context') && existsSync(join(root, '.git'))) {
+    return [
+      { command: 'git', args: ['status', '--short'] },
+      { command: 'git', args: ['diff', '--stat'] }
+    ];
+  }
+  return [{ command: process.execPath, args: ['--version'] }];
+}
+
+function normalizeShellCommands(commands) {
+  if (!Array.isArray(commands)) return [];
+  return commands.map(command => {
+    if (Array.isArray(command)) return { command: String(command[0]), args: command.slice(1).map(String) };
+    if (typeof command === 'string') return { command, args: [] };
+    return { command: String(command.command), args: (command.args ?? []).map(String) };
+  });
+}
+
+function isAllowedShellCommand(command, permissions, denyCommands) {
+  const formatted = formatCommand(command);
+  for (const denied of denyCommands ?? []) {
+    if (denied && formatted.includes(String(denied))) return false;
+  }
+  const base = basename(command.command);
+  const args = command.args ?? [];
+  if ((permissions ?? []).includes('shell.readonly')) {
+    if (base === 'git') return [['status', '--short'], ['diff', '--stat'], ['ls-files']].some(allowed => sameArgs(args, allowed));
+    if ((base === 'node' || base === 'nodejs') && args.length === 1 && args[0] === '--version') return true;
+  }
+  if ((permissions ?? []).includes('shell.test')) {
+    if (base === 'npm') return sameArgs(args, ['test']) || sameArgs(args, ['run', 'check']);
+    if ((base === 'node' || base === 'nodejs') && args[0] === '--check' && args.length === 2) return isSafeRelativePath(args[1]);
+    if ((base === 'node' || base === 'nodejs') && args.length === 1 && args[0] === '--version') return true;
+  }
+  return false;
+}
+
+function runSafeCommand(command, root, timeoutMinutes = 5) {
+  const startedAt = new Date().toISOString();
+  const timeout = Math.max(1000, Math.min(Number(timeoutMinutes || 5) * 60_000, 10 * 60_000));
+  const result = spawnSync(command.command, command.args ?? [], { cwd: root, encoding: 'utf8', timeout, maxBuffer: 1024 * 1024 * 2 });
+  return {
+    command: formatCommand(command),
+    status: result.status ?? (result.error ? 1 : 0),
+    signal: result.signal ?? null,
+    stdout: trimCommandOutput(result.stdout),
+    stderr: trimCommandOutput(result.stderr || result.error?.message || ''),
+    startedAt,
+    finishedAt: new Date().toISOString()
+  };
+}
+
+function renderShellArtifact({ outputName, node, skill, plan, inputArtifacts, commands, status, startedAt, root }) {
+  const lines = [
+    `# ${artifactTitle(outputName)}`,
+    '',
+    `- Artifact: \`${outputName}\``,
+    `- Node: \`${node.id}\``,
+    `- Skill: \`${node.skill}\` (${skill.title ?? skill.id ?? node.skill})`,
+    '- Executor: `shell`',
+    `- Status: ${status}`,
+    `- Started at: ${startedAt}`,
+    `- Finished at: ${new Date().toISOString()}`,
+    '',
+    '## Task',
+    '',
+    plan.spec?.task?.description ?? '',
+    '',
+    '## Inputs',
+    '',
+    ...(inputArtifacts.length ? inputArtifacts.map(item => `- ${item.name}: ${item.path}`) : ['- None']),
+    '',
+    '## Safe command results',
+    ''
+  ];
+  for (const result of commands) {
+    lines.push(`### ${result.command}`, '', `- Exit: ${result.status}${result.signal ? ` (${result.signal})` : ''}`, '', 'stdout:', '```', result.stdout || '(empty)', '```', '', 'stderr:', '```', result.stderr || '(empty)', '```', '');
+  }
+  if (outputName === 'repo.context') {
+    lines.push('## Repository snapshot', '', ...repositorySnapshot(root), '');
+  }
+  return lines.join('\n');
+}
+
+function renderHandoffTask({ node, skill, plan, inputs, expectedOutputs }) {
+  return [
+    `# sLoom Agent Handoff: ${node.id}`,
+    '',
+    `You are executing a sLoom workflow node with the real agent executor \`${node.executor ?? skill.execution?.preferredExecutor ?? 'agent'}\`.`,
+    '',
+    '## Task',
+    '',
+    plan.spec?.task?.description ?? '',
+    '',
+    '## Skill',
+    '',
+    `- ID: \`${skill.id ?? node.skill}\``,
+    `- Title: ${skill.title ?? node.skill}`,
+    `- Summary: ${skill.summary ?? ''}`,
+    `- Source: ${skill.source?.path ?? skill.skillPath ?? ''}`,
+    '',
+    '## Inputs',
+    '',
+    ...(inputs.length ? inputs.map(item => `- ${item.name}: ${item.path ?? '(missing)'}`) : ['- None']),
+    '',
+    '## Expected outputs',
+    '',
+    ...(node.outputs ?? []).map(name => `- ${name}: write a Markdown artifact, then submit with \`sloom artifact put ${'${RUN_ID}'} ${node.id} ${name} <file>\``),
+    '',
+    '## Execution rules',
+    '',
+    '- Respect the skill policy and current workspace boundaries.',
+    '- Do not run destructive commands such as `rm -rf` or `git push` unless the human explicitly asks.',
+    '- For implementation nodes, list changed files and verification commands in `implementation.summary`.',
+    '- For review nodes, set `Status: approved` only when the change is acceptable.',
+    ''
+  ].join('\n');
+}
+
+function commandSummary(result) {
+  return { command: result.command, status: result.status, signal: result.signal };
+}
+
+function formatCommand(command) {
+  return [command.command, ...(command.args ?? [])].join(' ');
+}
+
+function sameArgs(args, expected) {
+  return args.length === expected.length && args.every((arg, index) => arg === expected[index]);
+}
+
+function isSafeRelativePath(value) {
+  const normalized = normalizePathKey(value);
+  return Boolean(normalized) && !normalized.startsWith('../') && !normalized.includes('/../') && !normalized.startsWith('/');
+}
+
+function trimCommandOutput(value) {
+  const text = String(value ?? '');
+  return text.length > 20_000 ? `${text.slice(0, 20_000)}\n... <truncated>` : text;
+}
+
+function repositorySnapshot(root) {
+  const ignored = new Set(['.git', '.sloom', 'node_modules']);
+  const lines = ['Top-level files/directories:'];
+  try {
+    for (const entry of readdirSync(root, { withFileTypes: true }).filter(item => !ignored.has(item.name)).slice(0, 80)) {
+      lines.push(`- ${entry.isDirectory() ? 'dir ' : 'file'} ${entry.name}`);
+    }
+  } catch (error) {
+    lines.push(`- unable to read repository root: ${error.message}`);
+  }
+  return lines;
+}
+
+function inferArtifactStatus(content, artifactName) {
+  const match = String(content).match(/^[-*]?\s*Status:\s*([a-zA-Z0-9_-]+)/mi);
+  if (match) return match[1].toLowerCase();
+  if (artifactName === 'review-result') return 'approved';
+  if (artifactName === 'test-report') return 'passed';
+  return 'generated';
 }
 
 function renderArtifact({ outputName, node, skill, plan, inputArtifacts }) {
@@ -693,7 +1018,7 @@ function deterministicDraftFor(outputName, node, skill) {
   return `Artifact generated by ${skill.title ?? node.skill}.`;
 }
 
-function createInitialRunState(plan, runId, now, dryRun) {
+function createInitialRunState(plan, runId, now, dryRun, executorMode = 'local') {
   return {
     apiVersion: 'sloom.dev/v1alpha1',
     kind: 'WorkflowRun',
@@ -703,6 +1028,7 @@ function createInitialRunState(plan, runId, now, dryRun) {
     updatedAt: now,
     plan: { id: plan.metadata?.id ?? null, blueprint: plan.metadata?.blueprint ?? null },
     task: plan.spec?.task ?? {},
+    execution: { mode: executorMode },
     nodes: (plan.spec?.nodes ?? []).map(node => ({
       id: node.id,
       skill: node.skill,
@@ -774,7 +1100,7 @@ function summarizeRunResult(state, root, runDir) {
     status: state.status,
     runDir: relative(root, runDir),
     planId: state.plan?.id ?? null,
-    nodes: (state.nodes ?? []).map(node => ({ id: node.id, skill: node.skill, status: node.status, artifacts: node.artifacts ?? [] })),
+    nodes: (state.nodes ?? []).map(node => ({ id: node.id, skill: node.skill, status: node.status, artifacts: node.artifacts ?? [], handoff: node.handoff ?? null })),
     gates: state.gates ?? []
   };
 }

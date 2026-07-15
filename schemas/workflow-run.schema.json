@@ -3,38 +3,160 @@
   "$id": "https://sloom.dev/schemas/workflow-run.schema.json",
   "title": "sLoom Workflow Run",
   "type": "object",
-  "required": ["apiVersion", "kind", "id", "status", "createdAt", "nodes"],
+  "required": [
+    "apiVersion",
+    "kind",
+    "id",
+    "status",
+    "createdAt",
+    "nodes"
+  ],
   "properties": {
-    "apiVersion": { "const": "sloom.dev/v1alpha1" },
-    "kind": { "const": "WorkflowRun" },
-    "id": { "type": "string" },
-    "status": { "enum": ["created", "running", "paused", "succeeded", "failed", "dry-run"] },
-    "createdAt": { "type": "string" },
-    "updatedAt": { "type": "string" },
-    "startedAt": { "type": ["string", "null"] },
-    "finishedAt": { "type": ["string", "null"] },
-    "plan": { "type": "object" },
-    "task": { "type": "object" },
+    "apiVersion": {
+      "const": "sloom.dev/v1alpha1"
+    },
+    "kind": {
+      "const": "WorkflowRun"
+    },
+    "id": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "created",
+        "running",
+        "paused",
+        "succeeded",
+        "failed",
+        "dry-run"
+      ]
+    },
+    "createdAt": {
+      "type": "string"
+    },
+    "updatedAt": {
+      "type": "string"
+    },
+    "startedAt": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "finishedAt": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "plan": {
+      "type": "object"
+    },
+    "task": {
+      "type": "object"
+    },
     "nodes": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "skill", "status", "attempts", "inputs", "outputs", "artifacts"],
+        "required": [
+          "id",
+          "skill",
+          "status",
+          "attempts",
+          "inputs",
+          "outputs",
+          "artifacts"
+        ],
         "properties": {
-          "id": { "type": "string" },
-          "skill": { "type": "string" },
-          "executor": { "type": "string" },
-          "status": { "enum": ["pending", "running", "blocked", "paused", "succeeded", "failed", "dry-run"] },
-          "attempts": { "type": "integer", "minimum": 0 },
-          "inputs": { "type": "array", "items": { "type": "string" } },
-          "outputs": { "type": "array", "items": { "type": "string" } },
-          "dependsOn": { "type": "array", "items": { "type": "string" } },
-          "artifacts": { "type": "array", "items": { "type": "string" } }
+          "id": {
+            "type": "string"
+          },
+          "skill": {
+            "type": "string"
+          },
+          "executor": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "running",
+              "blocked",
+              "paused",
+              "handoff-ready",
+              "succeeded",
+              "failed",
+              "dry-run"
+            ]
+          },
+          "attempts": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "inputs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "outputs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "dependsOn": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "handoff": {
+            "type": "object",
+            "properties": {
+              "executor": {
+                "type": "string"
+              },
+              "task": {
+                "type": "string"
+              },
+              "inputs": {
+                "type": "string"
+              },
+              "expectedOutputs": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": true
+          }
         },
         "additionalProperties": true
       }
     },
-    "gates": { "type": "array" }
+    "gates": {
+      "type": "array"
+    },
+    "execution": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "enum": [
+            "local",
+            "auto",
+            "shell",
+            "handoff"
+          ]
+        }
+      },
+      "additionalProperties": true
+    }
   },
   "additionalProperties": true
 }

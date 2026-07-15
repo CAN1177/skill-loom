@@ -87,7 +87,10 @@ node packages/cli/bin/sloom.js graph .sloom/plans/search-empty-bug.json
 node packages/cli/bin/sloom.js run .sloom/plans/search-empty-bug.json --dry-run
 node packages/cli/bin/sloom.js run .sloom/plans/search-empty-bug.json
 node packages/cli/bin/sloom.js runs
-# node packages/cli/bin/sloom.js resume <run-id>
+# P3：使用真实 safe-shell + agent handoff adapter
+node packages/cli/bin/sloom.js run .sloom/plans/search-empty-bug.json --executor auto
+# node packages/cli/bin/sloom.js artifact put <run-id> <node-id> <artifact-name> <file>
+# node packages/cli/bin/sloom.js resume <run-id> --executor auto
 ```
 
 如果作为 npm package 安装，二进制命令名是 `sloom`。
@@ -106,13 +109,29 @@ node packages/cli/bin/sloom.js runs
     <node-id>/<artifact-name>.md
 ```
 
-当前默认 local runtime 是确定性、安全的：不会修改源码，只会把每个节点的输出物化为可追踪 Artifact，便于检查、恢复，并为后续接入真实 Agent Executor 留出接口。
+
+P3 的运行目录还可能包含 Agent handoff package：
+
+```text
+.sloom/runs/<run-id>/handoffs/<node-id>/
+  task.md
+  inputs.json
+  expected-outputs.json
+```
+
+这让 sLoom 现在就能在 Claude CLI 或 Codex CLI 中使用：sLoom 负责 routing、plan lock、policy、state、events 和 artifacts；外层 Agent 执行 handoff task，并把结果提交回运行时。
+
+当前默认 local runtime 是确定性、安全的：不会修改源码，只会把每个节点的输出物化为可追踪 Artifact，便于检查和恢复。
+
+P3 增加了显式 Executor Adapter 模式。`--executor auto` 会对 policy 允许的 shell 节点执行小范围 safe-command allowlist；对 Codex / Claude Code 节点则生成可持久化的 handoff package，而不是偷偷启动 Agent 或直接改源码。真实 Agent 完成任务后写出 Markdown Artifact，通过 `sloom artifact put` 回填，再用 `sloom resume --executor auto` 继续 DAG。
 
 常用命令：
 
 ```bash
 node packages/cli/bin/sloom.js run .sloom/plans/search-empty-bug.json --max-nodes 2
-node packages/cli/bin/sloom.js resume <run-id>
+node packages/cli/bin/sloom.js run .sloom/plans/search-empty-bug.json --executor auto
+node packages/cli/bin/sloom.js artifact put <run-id> analysis requirement.spec ./requirement.spec.md
+node packages/cli/bin/sloom.js resume <run-id> --executor auto
 node packages/cli/bin/sloom.js runs --json
 ```
 

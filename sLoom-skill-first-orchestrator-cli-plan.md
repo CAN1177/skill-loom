@@ -947,7 +947,7 @@ npm run check
 - [x] 实现确定性 local executor：不改源码，只物化节点输出 Artifact。
 - [x] 实现 `sloom resume <run-id>`，支持从 paused run 继续。
 - [x] 实现 `sloom runs` 查看历史运行。
-- [ ] 接入真实 shell / Codex / Claude Code Executor。
+- [x] 接入 safe shell executor 与 Codex/Claude Code handoff executor。
 - [ ] 支持失败节点日志、retry policy 和 gate 强制执行。
 
 验收标准：
@@ -958,22 +958,29 @@ npm run check
 
 ### P3：Agent Executor 与真实执行
 
-目标：在 P2 的 Artifact Runtime 上接入真实 Shell/Codex/Claude Code 执行器，让执行不止生成确定性草稿 Artifact。
+目标：在 P2 的 Artifact Runtime 上接入真实 Shell/Codex/Claude Code 执行器，让执行不止生成确定性草稿 Artifact，同时保持默认安全、不隐式改源码。
 
-任务：
+已完成的 P3 最小闭环：
 
-- [ ] 实现 shell executor。
-- [ ] 实现 Codex executor adapter。
-- [ ] 实现 Claude Code executor adapter。
-- [ ] 实现失败节点日志、retry/backoff、resume 状态机增强。
-- [ ] 实现 run report。
-- [ ] 实现 gate 强制执行与人工 approval。
+- [x] 抽象 ExecutorAdapter 调度：`local | auto | shell | handoff`。
+- [x] `sloom run/resume --executor auto`：按 Skill `preferredExecutor` 和 policy 选择 adapter。
+- [x] Safe shell executor：只允许 `shell.readonly` / `shell.test` 下的 allowlist 命令，记录 stdout/stderr/status 到 Artifact。
+- [x] Agent handoff executor：Codex / Claude Code 节点生成 `.sloom/runs/<run-id>/handoffs/<node-id>/task.md`、`inputs.json`、`expected-outputs.json` 并暂停。
+- [x] `sloom artifact put <run-id> <node-id> <artifact-name> <file>`：真实 Agent 或人工执行后回填 Artifact。
+- [x] `resume --executor auto` 可在回填后从下一个节点继续。
+
+后续增强：
+
+- [ ] Codex / Claude Code 子进程直连 executor（显式 opt-in）。
+- [ ] 失败节点 retry/backoff 与更细日志目录。
+- [ ] run report。
+- [ ] gate 强制执行与人工 approval。
 
 验收标准：
 
-- 中断后 `sloom resume <run-id>` 能从最后成功节点继续。
-- 每个产物可追溯到 node、skill、executor、attempt、inputs。
-- 失败节点能展示日志、错误、是否可重试。
+- `sloom run <plan> --executor auto` 可真实执行安全 shell 节点，并为 Agent 节点生成 handoff package。
+- 外部 Agent 产物可通过 `sloom artifact put` 回填到 manifest，并保留 checksum、executor、attempt、inputs。
+- 中断/等待 handoff 后 `sloom resume <run-id> --executor auto` 能从最后成功节点继续。
 
 ### P4：Agent Executor 与 CAO Adapter
 

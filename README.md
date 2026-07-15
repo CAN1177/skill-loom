@@ -72,8 +72,12 @@ node packages/cli/bin/sloom.js validate .sloom/plans/search-empty-bug.json
 node packages/cli/bin/sloom.js graph .sloom/plans/search-empty-bug.json
 node packages/cli/bin/sloom.js run .sloom/plans/search-empty-bug.json --dry-run
 node packages/cli/bin/sloom.js run .sloom/plans/search-empty-bug.json
+
+# P3: run with real safe-shell + agent handoff adapters
+node packages/cli/bin/sloom.js run .sloom/plans/search-empty-bug.json --executor auto
 node packages/cli/bin/sloom.js runs
-# node packages/cli/bin/sloom.js resume <run-id>
+# node packages/cli/bin/sloom.js artifact put <run-id> <node-id> <artifact-name> <file>
+# node packages/cli/bin/sloom.js resume <run-id> --executor auto
 ```
 
 If installed as a package, the binary name is `sloom`.
@@ -92,13 +96,29 @@ If installed as a package, the binary name is `sloom`.
     <node-id>/<artifact-name>.md
 ```
 
-The default local runtime is deterministic and safe: it does not mutate source files. It materializes each node output as a traceable artifact so the workflow can be inspected, resumed, and later replaced by real agent executors.
+
+P3 run directories may also include agent handoff packages:
+
+```text
+.sloom/runs/<run-id>/handoffs/<node-id>/
+  task.md
+  inputs.json
+  expected-outputs.json
+```
+
+This keeps sLoom usable inside Claude CLI or Codex CLI today: sLoom owns routing, plan locking, policy, state, events, and artifacts; the surrounding agent executes the generated handoff task and submits the result.
+
+The default local runtime is deterministic and safe: it does not mutate source files. It materializes each node output as a traceable artifact so the workflow can be inspected and resumed.
+
+P3 adds an explicit executor adapter mode. `--executor auto` runs policy-approved shell nodes with a small safe-command allowlist, and turns Codex / Claude Code nodes into durable handoff packages instead of secretly spawning agents or mutating your code. A real agent can complete the handoff, write a Markdown artifact, submit it back with `sloom artifact put`, and then `sloom resume --executor auto` continues the DAG.
 
 Useful commands:
 
 ```bash
 node packages/cli/bin/sloom.js run .sloom/plans/search-empty-bug.json --max-nodes 2
-node packages/cli/bin/sloom.js resume <run-id>
+node packages/cli/bin/sloom.js run .sloom/plans/search-empty-bug.json --executor auto
+node packages/cli/bin/sloom.js artifact put <run-id> analysis requirement.spec ./requirement.spec.md
+node packages/cli/bin/sloom.js resume <run-id> --executor auto
 node packages/cli/bin/sloom.js runs --json
 ```
 

@@ -20,6 +20,7 @@ import {
   routeTask,
   runWorkflowPlan,
   scanSkills,
+  submitRunArtifact,
   validatePlan,
   writeInventory,
   writeJson
@@ -46,6 +47,7 @@ try {
   else if (command === 'run') cmdRun(args.slice(1));
   else if (command === 'resume') cmdResume(args.slice(1));
   else if (command === 'runs') cmdRuns(args.slice(1));
+  else if (command === 'artifact') cmdArtifact(args.slice(1));
   else die(`Unknown command: ${command}\nRun: sloom --help`);
 } catch (error) {
   die(error?.stack || error?.message || String(error));
@@ -199,20 +201,20 @@ function cmdGraph(argv) {
 
 function cmdRun(argv) {
   const file = positional(argv)[0];
-  if (!file) die('Usage: sloom run <plan.json> [--dry-run] [--max-nodes N] [--json]');
+  if (!file) die('Usage: sloom run <plan.json> [--executor local|auto|shell|handoff] [--dry-run] [--max-nodes N] [--json]');
   const dryRun = argv.includes('--dry-run');
   const plan = readJson(resolve(root, file));
   const catalog = ensureCatalog();
-  const result = runWorkflowPlan(plan, catalog, root, { dryRun, maxNodes: getOption(argv, '--max-nodes') });
+  const result = runWorkflowPlan(plan, catalog, root, { dryRun, maxNodes: getOption(argv, '--max-nodes'), executorMode: getOption(argv, '--executor') ?? getOption(argv, '--executor-mode') });
   if (argv.includes('--json')) printJson(result);
   else printRunResult(result, dryRun ? 'Dry-run completed' : 'Run completed');
 }
 
 function cmdResume(argv) {
   const runId = positional(argv)[0];
-  if (!runId) die('Usage: sloom resume <run-id> [--max-nodes N] [--json]');
+  if (!runId) die('Usage: sloom resume <run-id> [--executor local|auto|shell|handoff] [--max-nodes N] [--json]');
   const catalog = ensureCatalog();
-  const result = resumeWorkflowRun(runId, catalog, root, { maxNodes: getOption(argv, '--max-nodes') });
+  const result = resumeWorkflowRun(runId, catalog, root, { maxNodes: getOption(argv, '--max-nodes'), executorMode: getOption(argv, '--executor') ?? getOption(argv, '--executor-mode') });
   if (argv.includes('--json')) printJson(result);
   else printRunResult(result, 'Resume completed');
 }
@@ -225,13 +227,30 @@ function cmdRuns(argv) {
   }
 }
 
+function cmdArtifact(argv) {
+  const sub = argv[0];
+  if (sub !== 'put') die('Usage: sloom artifact put <run-id> <node-id> <artifact-name> <file> [--status approved|passed|generated] [--json]');
+  const [runId, nodeId, artifactName, file] = argv.slice(1).filter(arg => !arg.startsWith('--'));
+  if (!runId || !nodeId || !artifactName || !file) die('Usage: sloom artifact put <run-id> <node-id> <artifact-name> <file> [--status approved|passed|generated] [--json]');
+  const catalog = ensureCatalog();
+  const result = submitRunArtifact(runId, nodeId, artifactName, file, catalog, root, { status: getOption(argv, '--status'), executor: getOption(argv, '--executor') });
+  if (argv.includes('--json')) printJson(result);
+  else {
+    console.log(`Submitted ${artifactName} for ${nodeId}`);
+    console.log(`Artifact: ${result.artifact.path}`);
+    console.log(`Node status: ${result.nodeStatus}`);
+    console.log(`Run status: ${result.runStatus}`);
+  }
+}
+
 function printRunResult(result, title) {
   console.log(`${title}: ${result.id}`);
   console.log(`Status: ${result.status}`);
   console.log(`Run dir: ${result.runDir}`);
   for (const node of result.nodes) {
     const artifacts = node.artifacts?.length ? ` artifacts=${node.artifacts.length}` : '';
-    console.log(`- ${node.status} ${node.id} -> ${node.skill}${artifacts}`);
+    const handoff = node.handoff?.task ? ` handoff=${node.handoff.task}` : '';
+    console.log(`- ${node.status} ${node.id} -> ${node.skill}${artifacts}${handoff}`);
   }
   for (const gate of result.gates ?? []) console.log(`gate ${gate.after ?? ''}: ${gate.status}`);
 }
@@ -258,9 +277,10 @@ Usage:
   sloom plan --task "<task>" [--blueprint bugfix|feature] [--out plan.json]
   sloom validate <plan.json>
   sloom graph <plan.json> [--out graph.mmd]
-  sloom run <plan.json> [--dry-run] [--max-nodes N]
-  sloom resume <run-id> [--max-nodes N]
+  sloom run <plan.json> [--executor local|auto|shell|handoff] [--dry-run] [--max-nodes N]
+  sloom resume <run-id> [--executor local|auto|shell|handoff] [--max-nodes N]
   sloom runs [--json]
+  sloom artifact put <run-id> <node-id> <artifact-name> <file>
 `);
 }
 

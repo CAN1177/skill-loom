@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, cpSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, cpSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { applyOverlayProposal, createPlan, indexSkills, lintCatalog, listRuns, proposeOverlays, readBlueprint, readRunState, resumeWorkflowRun, rollbackBackup, routeTask, runWorkflowPlan, scanSkills, validatePlan, writeInventory } from '../src/index.js';
+import { applyOverlayProposal, createPlan, indexSkills, lintCatalog, listRuns, proposeOverlays, readBlueprint, readRunState, resumeWorkflowRun, rollbackBackup, routeTask, runWorkflowPlan, scanSkills, submitRunArtifact, validatePlan, writeInventory } from '../src/index.js';
 
 
 test('scans skills into non-invasive inventory', () => {
@@ -102,4 +102,63 @@ test('routes and plans a bugfix DAG', () => {
   assert.ok(plan.spec.nodes.some(n => n.skill === 'implementation.targeted-fix'));
   assert.ok(plan.spec.nodes.some(n => n.skill === 'test.regression'));
   assert.equal(validatePlan(plan, catalog).ok, true);
+});
+
+
+test('auto executor runs safe shell nodes and records command output', () => {
+  const root = mkdtempSync(join(tmpdir(), 'sloom-test-'));
+  cpSync(join(process.cwd(), 'examples'), join(root, 'examples'), { recursive: true });
+  cpSync(join(process.cwd(), 'packs'), join(root, 'packs'), { recursive: true });
+  const catalog = indexSkills(['examples/skills'], root);
+  const plan = {
+    apiVersion: 'sloom.dev/v1alpha1',
+    kind: 'WorkflowPlan',
+    metadata: { id: 'safe-shell-test', blueprint: 'test' },
+    spec: {
+      task: { description: '验证 safe shell executor', intent: 'feature', risk: 'low' },
+      nodes: [{ id: 'regression', skill: 'test.regression', executor: 'shell', inputs: [], outputs: ['test-report'] }],
+      gates: []
+    }
+  };
+  const result = runWorkflowPlan(plan, catalog, root, { executorMode: 'auto', shellCommands: { regression: [{ command: process.execPath, args: ['--version'] }] } });
+  assert.equal(result.status, 'succeeded');
+  assert.equal(result.nodes[0].status, 'succeeded');
+  const manifest = JSON.parse(readFileSync(join(root, result.runDir, 'artifacts', 'manifest.json'), 'utf8'));
+  const report = manifest.artifacts.find(artifact => artifact.name === 'test-report');
+  assert.equal(report.executor, 'shell');
+  assert.equal(report.metadata.status, 'passed');
+  assert.ok(readFileSync(join(root, report.path), 'utf8').includes('Safe command results'));
+});
+
+test('auto executor creates agent handoff packages and accepts submitted artifacts', () => {
+  const root = mkdtempSync(join(tmpdir(), 'sloom-test-'));
+  cpSync(join(process.cwd(), 'examples'), join(root, 'examples'), { recursive: true });
+  cpSync(join(process.cwd(), 'packs'), join(root, 'packs'), { recursive: true });
+  cpSync(join(process.cwd(), 'blueprints'), join(root, 'blueprints'), { recursive: true });
+  const catalog = indexSkills(['examples/skills'], root);
+  const task = '给 sLoom CLI 增加 status 命令展示 inventory catalog overlays backups';
+  const route = routeTask(task, { catalog });
+  const blueprint = readBlueprint('feature', root);
+  const plan = createPlan({ task, catalog, blueprint, route, id: 'handoff-flow' });
+
+  const result = runWorkflowPlan(plan, catalog, root, { executorMode: 'auto' });
+  assert.equal(result.status, 'paused');
+  assert.ok(result.nodes.some(node => node.status === 'succeeded' && node.skill === 'repo.exploration'));
+  const handoffNode = result.nodes.find(node => node.status === 'handoff-ready');
+  assert.ok(handoffNode);
+  const state = readRunState(result.id, root);
+  const handoffState = state.nodes.find(node => node.id === handoffNode.id);
+  assert.ok(existsSync(join(root, handoffState.handoff.task)));
+  assert.ok(existsSync(join(root, handoffState.handoff.inputs)));
+  assert.ok(existsSync(join(root, handoffState.handoff.expectedOutputs)));
+
+  const submittedFile = join(root, 'requirement.spec.md');
+  writeFileSync(submittedFile, '# Requirement Spec\n\nStatus: generated\n\n- Acceptance: status command lists sLoom runtime assets.\n');
+  const submission = submitRunArtifact(result.id, handoffNode.id, 'requirement.spec', submittedFile, catalog, root, { executor: 'codex' });
+  assert.equal(submission.nodeStatus, 'succeeded');
+  assert.equal(submission.artifact.name, 'requirement.spec');
+
+  const resumed = resumeWorkflowRun(result.id, catalog, root, { executorMode: 'auto' });
+  assert.equal(resumed.status, 'paused');
+  assert.ok(resumed.nodes.some(node => node.status === 'handoff-ready'));
 });
