@@ -1,0 +1,52 @@
+{
+  "apiVersion": "sloom.dev/v1alpha1",
+  "kind": "QualityEvaluationDataset",
+  "metadata": {
+    "id": "development-flow",
+    "version": "0.1.0",
+    "description": "Golden tasks for validating sLoom routing and Artifact DAG planning on simple development work.",
+    "baselineSkillCount": 40
+  },
+  "pack": "frontend-delivery",
+  "cases": [
+    {
+      "id": "bugfix-search-empty",
+      "task": "修复资源列表搜索为空时报错",
+      "blueprint": "bugfix",
+      "expected": {
+        "intent": "bugfix",
+        "risk": "low",
+        "topSkills": ["implementation.targeted-fix"],
+        "skills": ["repo.exploration", "implementation.targeted-fix", "test.regression", "review.code"],
+        "artifacts": ["repo.context", "source.diff", "implementation.summary", "test-report", "review-result"],
+        "maxNodes": 5
+      }
+    },
+    {
+      "id": "feature-status-command",
+      "task": "新增功能：实现 sLoom CLI status 命令，展示 inventory catalog overlays backups",
+      "blueprint": "feature",
+      "expected": {
+        "intent": "feature",
+        "risk": "low",
+        "topSkills": ["requirements.analysis", "implementation.targeted-fix"],
+        "skills": ["repo.exploration", "requirements.analysis", "architecture.decision", "implementation.targeted-fix", "test.regression", "review.code"],
+        "artifacts": ["repo.context", "requirement.spec", "architecture.decision", "api.contract", "source.diff", "implementation.summary", "test-report", "review-result"],
+        "maxNodes": 6
+      }
+    },
+    {
+      "id": "rbac-design",
+      "task": "设计并实现后台 RBAC 权限模型，需要接口约束、测试和代码评审",
+      "blueprint": "feature",
+      "expected": {
+        "intent": "feature",
+        "risk": "high",
+        "topSkills": ["architecture.decision", "implementation.targeted-fix", "test.regression"],
+        "skills": ["repo.exploration", "requirements.analysis", "architecture.decision", "implementation.targeted-fix", "test.regression", "review.code"],
+        "artifacts": ["repo.context", "requirement.spec", "architecture.decision", "api.contract", "source.diff", "implementation.summary", "test-report", "review-result"],
+        "maxNodes": 6
+      }
+    }
+  ]
+}

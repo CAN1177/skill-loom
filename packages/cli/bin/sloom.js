@@ -5,6 +5,7 @@ import {
   applyOverlayProposal,
   createPlan,
   ensureSloom,
+  evaluateWorkflowQuality,
   indexSkills,
   lintCatalog,
   listExecutorAdapters,
@@ -49,6 +50,7 @@ try {
   else if (command === 'resume') cmdResume(args.slice(1));
   else if (command === 'runs') cmdRuns(args.slice(1));
   else if (command === 'executors') cmdExecutors(args.slice(1));
+  else if (command === 'eval') cmdEval(args.slice(1));
   else if (command === 'artifact') cmdArtifact(args.slice(1));
   else die(`Unknown command: ${command}\nRun: sloom --help`);
 } catch (error) {
@@ -242,6 +244,38 @@ function cmdExecutors(argv) {
   }
 }
 
+
+function cmdEval(argv) {
+  const file = positional(argv)[0] ?? 'evals/development-flow.json';
+  if (!file) die('Usage: sloom eval [dataset.json] [--pack <id>] [--json] [--out report.json] [--include-plans]');
+  const dataset = readJson(resolve(root, file));
+  const catalog = ensureCatalog();
+  const pack = readPack(getOption(argv, '--pack') ?? dataset.pack ?? readConfig(root).defaultPack, root);
+  const report = evaluateWorkflowQuality(dataset, catalog, root, { pack, includePlans: argv.includes('--include-plans') });
+  const out = getOption(argv, '--out');
+  const json = argv.includes('--json');
+  if (out) {
+    writeJson(resolve(root, out), report);
+    if (!json) console.log(`Wrote ${out}`);
+  }
+  if (json) printJson(report);
+  else {
+    console.log(`Dataset: ${report.dataset.id ?? file}`);
+    console.log(`Cases: ${report.dataset.cases}`);
+    console.log(`Pass rate: ${report.summary.passRate} (${report.summary.passCount}/${report.dataset.cases})`);
+    console.log(`Avg route top-3 recall: ${report.summary.averages.routeTop3SkillRecall}`);
+    console.log(`Avg artifact coverage: ${report.summary.averages.artifactCoverage}`);
+    console.log(`Avg prompt pollution reduction: ${report.summary.averages.promptPollutionReduction}`);
+    console.log(`Avg estimated human interventions: ${report.summary.averages.estimatedHumanInterventions}`);
+    for (const item of report.cases) {
+      const marker = item.ok ? 'PASS' : 'FAIL';
+      console.log(`- ${marker} ${item.id}: nodes=${item.metrics.planNodeCount} top3=${item.actual.top3Skills.join(',')}`);
+      for (const failure of item.failures ?? []) console.log(`  missing/failed ${failure.name}: ${JSON.stringify(failure.missing ?? failure.actual ?? failure.errors)}`);
+    }
+    if (!report.summary.ok) process.exitCode = 1;
+  }
+}
+
 function cmdArtifact(argv) {
   const sub = argv[0];
   if (sub !== 'put') die('Usage: sloom artifact put <run-id> <node-id> <artifact-name> <file> [--status approved|passed|generated] [--json]');
@@ -296,6 +330,7 @@ Usage:
   sloom resume <run-id> [--executor local|auto|shell|handoff|codex|claude-code|cao] [--max-nodes N]
   sloom runs [--json]
   sloom executors [--json]
+  sloom eval [dataset.json] [--pack <id>] [--json] [--out report.json] [--include-plans]
   sloom artifact put <run-id> <node-id> <artifact-name> <file>
 `);
 }

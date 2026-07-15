@@ -881,9 +881,9 @@ sloom retry <run-id> <node-id>
 sloom replan <run-id> --reason "artifact contract mismatch"
 
 # 评估
-sloom eval route --dataset examples/evals/routes.jsonl
-sloom eval plan --dataset examples/evals/plans.jsonl
-sloom report <run-id>
+sloom eval evals/development-flow.json
+sloom eval evals/development-flow.json --json --out .sloom/reports/development-flow.json
+sloom runs --json
 ```
 
 ---
@@ -1012,16 +1012,24 @@ npm run check
 
 ### P5：质量评估与团队推广
 
-目标：让团队相信它不是“炫技编排”，而是真能降低研发摩擦。
+目标：让团队相信它不是“炫技编排”，而是真能降低研发摩擦。P5 的 MVP 是把推广材料和可运行评估绑定：每次改 routing / pack / overlay，都可以用 golden tasks 证明没有退化。
 
-任务：
+已完成的 P5 最小闭环：
 
-- [ ] 建立 route eval dataset：任务描述 → 期望 Skill。
-- [ ] 建立 plan eval dataset：任务描述 → 期望 Artifact DAG。
-- [ ] 统计 prompt pollution reduction：激活 Skill 数减少比例。
-- [ ] 统计 human intervention rate：每个任务需要人工介入次数。
+- [x] 建立 route eval dataset：`evals/development-flow.json`，任务描述 → 期望 top Skills。
+- [x] 建立 plan eval dataset：同一 dataset 中声明期望 Skill DAG 和 Artifact 覆盖。
+- [x] 新增 `sloom eval <dataset.json>`：输出 `QualityEvaluationReport`。
+- [x] 统计 prompt pollution reduction：激活 Skill 数相对 baseline Skill 数的减少比例。
+- [x] 统计 estimated human interventions：按 Agent executor / handoff 节点估算介入次数。
+- [x] 增加团队内推广文档：`docs/guides/team-adoption.md`。
+- [x] 增加演示脚本：`scripts/demo/p5-quality-demo.sh`。
+
+后续增强：
+
+- [ ] 从真实 run-state 汇总 human intervention rate，而不只做计划期估算。
 - [ ] 统计 recovery success rate：失败后自动恢复比例。
-- [ ] 增加团队内推广文档和演示脚本。
+- [ ] 增加更多真实团队 historical tasks，覆盖 bugfix、feature、refactor、release。
+- [ ] 把 eval report 接入 CI，防止 routing / planning 质量退化。
 
 ---
 

@@ -592,6 +592,145 @@ export function submitRunArtifact(runId, nodeId, artifactName, sourceFile, catal
   return { runId, nodeId, artifact: record, nodeStatus: nodeState.status, runStatus: state.status };
 }
 
+
+export function evaluateWorkflowQuality(dataset, catalog, root = process.cwd(), options = {}) {
+  if (!dataset || !Array.isArray(dataset.cases)) throw new Error('Expected evaluation dataset with cases[]');
+  const generatedAt = new Date().toISOString();
+  const baselineSkillCount = Number(options.baselineSkillCount ?? dataset.metadata?.baselineSkillCount ?? catalog.skills?.length ?? 0);
+  const cases = dataset.cases.map(item => evaluateCase(item, catalog, root, { ...options, baselineSkillCount }));
+  const total = cases.length || 1;
+  const passCount = cases.filter(item => item.ok).length;
+  const averages = {
+    routeTop3SkillRecall: average(cases.map(item => item.metrics.routeTop3SkillRecall)),
+    planSkillRecall: average(cases.map(item => item.metrics.planSkillRecall)),
+    artifactCoverage: average(cases.map(item => item.metrics.artifactCoverage)),
+    promptPollutionReduction: average(cases.map(item => item.metrics.promptPollutionReduction)),
+    estimatedHumanInterventions: average(cases.map(item => item.metrics.estimatedHumanInterventions)),
+    planNodeCount: average(cases.map(item => item.metrics.planNodeCount))
+  };
+  return {
+    apiVersion: 'sloom.dev/v1alpha1',
+    kind: 'QualityEvaluationReport',
+    generatedAt,
+    dataset: {
+      id: dataset.metadata?.id ?? dataset.id ?? null,
+      version: dataset.metadata?.version ?? null,
+      cases: cases.length
+    },
+    summary: {
+      ok: cases.every(item => item.ok),
+      passCount,
+      failCount: cases.length - passCount,
+      passRate: Number((passCount / total).toFixed(2)),
+      averages
+    },
+    cases
+  };
+}
+
+function evaluateCase(item, catalog, root, options = {}) {
+  const task = item.task ?? item.input?.task;
+  if (!task) throw new Error(`Evaluation case ${item.id ?? '(unknown)'} is missing task`);
+  const expected = item.expected ?? {};
+  const pack = item.pack ? readPack(item.pack, root) : (options.pack ?? null);
+  const route = routeTask(task, { catalog, pack, limit: options.limit ?? 8 });
+  const blueprintName = item.blueprint ?? expected.blueprint ?? route.suggestedBlueprint;
+  const blueprint = readBlueprint(blueprintName, root);
+  const plan = createPlan({ task, catalog, blueprint, route, id: item.id });
+  const validation = validatePlan(plan, catalog);
+  const actualSkills = [...new Set((plan.spec?.nodes ?? []).map(node => node.skill))];
+  const actualArtifacts = [...new Set((plan.spec?.nodes ?? []).flatMap(node => node.outputs ?? []))];
+  const top3 = (route.candidates ?? []).slice(0, 3).map(candidate => candidate.id);
+  const expectedTopSkills = expected.topSkills ?? expected.routeTopSkills ?? expected.skills ?? [];
+  const expectedSkills = expected.skills ?? [];
+  const expectedArtifacts = expected.artifacts ?? [];
+  const checks = [];
+  checks.push(checkEqual('intent', route.intent, expected.intent));
+  checks.push(checkEqual('risk', route.risk, expected.risk));
+  checks.push(checkSetIncludes('route.top3Skills', top3, expectedTopSkills));
+  checks.push(checkSetIncludes('plan.skills', actualSkills, expectedSkills));
+  checks.push(checkSetIncludes('plan.artifacts', actualArtifacts, expectedArtifacts));
+  checks.push(checkMax('plan.maxNodes', plan.spec?.nodes?.length ?? 0, expected.maxNodes));
+  checks.push(checkValidation(validation));
+  const failed = checks.filter(check => check && !check.ok);
+  const activeSkillCount = actualSkills.length;
+  const catalogSkillCount = Math.max(Number(options.baselineSkillCount ?? catalog.skills?.length ?? activeSkillCount), activeSkillCount);
+  const interventions = estimateHumanInterventions(plan);
+  const routeRecall = ratio(expectedTopSkills.filter(id => top3.includes(id)).length, expectedTopSkills.length);
+  const skillRecall = ratio(expectedSkills.filter(id => actualSkills.includes(id)).length, expectedSkills.length);
+  const artifactCoverage = ratio(expectedArtifacts.filter(id => actualArtifacts.includes(id)).length, expectedArtifacts.length);
+  return {
+    id: item.id ?? slugify(task).slice(0, 48),
+    task,
+    ok: failed.length === 0,
+    checks: checks.filter(Boolean),
+    failures: failed,
+    metrics: {
+      routeTop3SkillRecall: routeRecall,
+      planSkillRecall: skillRecall,
+      artifactCoverage,
+      promptPollutionReduction: Number(Math.max(0, 1 - activeSkillCount / Math.max(catalogSkillCount, 1)).toFixed(2)),
+      estimatedHumanInterventions: interventions,
+      planNodeCount: plan.spec?.nodes?.length ?? 0,
+      activeSkillCount,
+      catalogSkillCount
+    },
+    actual: {
+      intent: route.intent,
+      risk: route.risk,
+      top3Skills: top3,
+      planSkills: actualSkills,
+      artifacts: actualArtifacts,
+      blueprint: plan.metadata?.blueprint
+    },
+    expected: {
+      intent: expected.intent ?? null,
+      risk: expected.risk ?? null,
+      topSkills: expectedTopSkills,
+      skills: expectedSkills,
+      artifacts: expectedArtifacts,
+      maxNodes: expected.maxNodes ?? null
+    },
+    route,
+    plan: options.includePlans ? plan : { id: plan.metadata?.id, nodes: plan.spec?.nodes?.map(node => ({ id: node.id, skill: node.skill, executor: node.executor, inputs: node.inputs, outputs: node.outputs, dependsOn: node.dependsOn })) ?? [] }
+  };
+}
+
+function checkEqual(name, actual, expected) {
+  if (expected === undefined || expected === null) return null;
+  return { name, ok: actual === expected, expected, actual };
+}
+
+function checkSetIncludes(name, actual, expected) {
+  if (!Array.isArray(expected) || expected.length === 0) return null;
+  const missing = expected.filter(item => !actual.includes(item));
+  return { name, ok: missing.length === 0, expected, actual, missing };
+}
+
+function checkMax(name, actual, expected) {
+  if (expected === undefined || expected === null) return null;
+  return { name, ok: actual <= expected, expected: `<= ${expected}`, actual };
+}
+
+function checkValidation(validation) {
+  return { name: 'plan.validation', ok: validation.ok, errors: validation.errors ?? [], warnings: validation.warnings ?? [] };
+}
+
+function ratio(numerator, denominator) {
+  if (!denominator) return 1;
+  return Number((numerator / denominator).toFixed(2));
+}
+
+function average(values) {
+  const nums = values.filter(value => Number.isFinite(value));
+  if (!nums.length) return 0;
+  return Number((nums.reduce((sum, value) => sum + value, 0) / nums.length).toFixed(2));
+}
+
+function estimateHumanInterventions(plan) {
+  return (plan.spec?.nodes ?? []).filter(node => isAgentExecutor(node.executor)).length;
+}
+
 export function listRuns(root = process.cwd()) {
   const runsDir = join(root, SLOOM_DIR, 'runs');
   if (!existsSync(runsDir)) return [];

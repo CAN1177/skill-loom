@@ -78,6 +78,7 @@ node packages/cli/bin/sloom.js run .sloom/plans/search-empty-bug.json
 
 # P3/P4: run with safe-shell, handoff, or dispatch adapters
 node packages/cli/bin/sloom.js executors
+node packages/cli/bin/sloom.js eval evals/development-flow.json
 node packages/cli/bin/sloom.js run .sloom/plans/search-empty-bug.json --executor auto
 # node packages/cli/bin/sloom.js run .sloom/plans/search-empty-bug.json --executor cao
 node packages/cli/bin/sloom.js runs
@@ -137,6 +138,16 @@ node packages/cli/bin/sloom.js runs --json
 ```
 
 
+## Quality evaluation
+
+P5 adds a lightweight evaluation loop so teams can prove sLoom is improving the workflow instead of just adding orchestration ceremony:
+
+```bash
+node packages/cli/bin/sloom.js eval evals/development-flow.json
+```
+
+The report checks route top-3 recall, plan Skill recall, expected Artifact coverage, estimated human interventions, and prompt pollution reduction. See [Team Adoption Guide](docs/guides/team-adoption.md) for the demo script and rollout checklist.
+
 ## Repository layout
 
 ```text
@@ -147,7 +158,9 @@ blueprints/          workflow skeletons: bugfix, feature
 packs/               curated skill sets, routing policies, and metadata overlays
 schemas/             JSON Schemas for metadata overlays and plans
 examples/            example skills and plans
-docs/                architecture notes, agent integration, and roadmap
+docs/                architecture notes, agent integration, team guide, and roadmap
+evals/               golden route/plan quality datasets
+scripts/demo/        reproducible demo scripts
 skills/              optional sLoom Entry Skill for agent natural-language use
 ```
 
@@ -214,7 +227,7 @@ See [`docs/roadmap.md`](docs/roadmap.md) for the full plan. The next implementat
 - support YAML round-trip for plans and metadata overlays
 - add opt-in real subprocess/session monitoring for Codex, Claude Code, and CAO
 - add git worktree isolation
-- create routing / planning eval datasets
+- expand route / planning eval datasets with real team tasks
 
 ## License
 

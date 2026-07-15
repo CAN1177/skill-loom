@@ -148,6 +148,16 @@ node packages/cli/bin/sloom.js runs --json
 ```
 
 
+## 质量评估
+
+P5 增加了轻量评估闭环，用来证明 sLoom 不是“炫技编排”，而是真的在降低研发摩擦：
+
+```bash
+node packages/cli/bin/sloom.js eval evals/development-flow.json
+```
+
+报告会检查 route top-3 recall、plan Skill recall、期望 Artifact 覆盖率、预估人工介入次数和 prompt pollution reduction。团队演示脚本和落地清单见 [Team Adoption Guide](docs/guides/team-adoption.md)。
+
 ## 仓库结构
 
 ```text
@@ -158,7 +168,9 @@ blueprints/          bugfix、feature 等工作流骨架
 packs/               面向场景的 Skill 集合和路由策略
 schemas/             metadata overlay 和 plan 的 JSON Schemas
 examples/            示例 Skills 和 Plans
-docs/                架构说明、Agent 集成说明和路线图
+docs/                架构说明、Agent 集成说明、团队推广指南和路线图
+evals/               route/plan 质量评估 golden datasets
+scripts/demo/        可复现演示脚本
 skills/              可选的 sLoom Entry Skill，用于 Agent 自然语言调用
 ```
 
@@ -259,7 +271,7 @@ Skill 选择、计划生成、权限策略和质量门属于 sLoom Core；执行
 - 支持 plans 和 metadata overlays 的 YAML round-trip
 - 增加 Codex、Claude Code、CAO 的显式 opt-in 子进程/会话监控
 - 增加 git worktree 隔离
-- 建立 routing / planning eval datasets
+- 用真实团队任务扩充 routing / planning eval datasets
 
 ## License
 

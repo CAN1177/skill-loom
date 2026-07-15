@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, cpSync, readFileSync, writeFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { applyOverlayProposal, createPlan, indexSkills, lintCatalog, listExecutorAdapters, listRuns, mapPolicyToCaoAllowedTools, proposeOverlays, readBlueprint, readRunState, resumeWorkflowRun, rollbackBackup, routeTask, runWorkflowPlan, scanSkills, submitRunArtifact, validatePlan, writeInventory } from '../src/index.js';
+import { applyOverlayProposal, createPlan, evaluateWorkflowQuality, indexSkills, lintCatalog, listExecutorAdapters, listRuns, mapPolicyToCaoAllowedTools, proposeOverlays, readBlueprint, readRunState, resumeWorkflowRun, rollbackBackup, routeTask, runWorkflowPlan, scanSkills, submitRunArtifact, validatePlan, writeInventory } from '../src/index.js';
 
 
 test('scans skills into non-invasive inventory', () => {
@@ -230,4 +230,36 @@ test('codex executor creates dispatch package for agent node', () => {
   assert.equal(dispatch.adapter, 'codex');
   assert.equal(dispatch.command.command, 'codex');
   assert.equal(existsSync(join(root, dispatch.prompt)), true);
+});
+
+test('evaluates route and plan quality dataset', () => {
+  const root = mkdtempSync(join(tmpdir(), 'sloom-test-'));
+  cpSync(join(process.cwd(), 'examples'), join(root, 'examples'), { recursive: true });
+  cpSync(join(process.cwd(), 'packs'), join(root, 'packs'), { recursive: true });
+  cpSync(join(process.cwd(), 'blueprints'), join(root, 'blueprints'), { recursive: true });
+  const catalog = indexSkills(['examples/skills'], root);
+  const dataset = {
+    apiVersion: 'sloom.dev/v1alpha1',
+    kind: 'QualityEvaluationDataset',
+    metadata: { id: 'unit-quality', baselineSkillCount: 20 },
+    cases: [{
+      id: 'bugfix-search-empty',
+      task: '修复资源列表搜索为空时报错',
+      blueprint: 'bugfix',
+      expected: {
+        intent: 'bugfix',
+        risk: 'low',
+        topSkills: ['implementation.targeted-fix'],
+        skills: ['repo.exploration', 'implementation.targeted-fix', 'test.regression', 'review.code'],
+        artifacts: ['repo.context', 'source.diff', 'test-report', 'review-result'],
+        maxNodes: 5
+      }
+    }]
+  };
+  const report = evaluateWorkflowQuality(dataset, catalog, root);
+  assert.equal(report.kind, 'QualityEvaluationReport');
+  assert.equal(report.summary.ok, true);
+  assert.equal(report.summary.passRate, 1);
+  assert.equal(report.cases[0].metrics.routeTop3SkillRecall, 1);
+  assert.ok(report.cases[0].metrics.promptPollutionReduction > 0.7);
 });

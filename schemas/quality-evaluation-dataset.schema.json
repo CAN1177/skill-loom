@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sloom.dev/schemas/quality-evaluation-dataset.schema.json",
+  "title": "sLoom Quality Evaluation Dataset",
+  "type": "object",
+  "required": ["apiVersion", "kind", "cases"],
+  "properties": {
+    "apiVersion": { "const": "sloom.dev/v1alpha1" },
+    "kind": { "const": "QualityEvaluationDataset" },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "version": { "type": "string" },
+        "description": { "type": "string" },
+        "baselineSkillCount": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": true
+    },
+    "pack": { "type": "string" },
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "task", "expected"],
+        "properties": {
+          "id": { "type": "string" },
+          "task": { "type": "string" },
+          "blueprint": { "type": "string" },
+          "pack": { "type": "string" },
+          "expected": {
+            "type": "object",
+            "properties": {
+              "intent": { "type": "string" },
+              "risk": { "type": "string" },
+              "topSkills": { "type": "array", "items": { "type": "string" } },
+              "skills": { "type": "array", "items": { "type": "string" } },
+              "artifacts": { "type": "array", "items": { "type": "string" } },
+              "maxNodes": { "type": "integer", "minimum": 1 }
+            },
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}
