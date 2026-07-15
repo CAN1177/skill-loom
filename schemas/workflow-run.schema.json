@@ -151,7 +151,10 @@
             "local",
             "auto",
             "shell",
-            "handoff"
+            "handoff",
+            "codex",
+            "claude-code",
+            "cao"
           ]
         }
       },

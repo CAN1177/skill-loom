@@ -7,6 +7,7 @@ import {
   ensureSloom,
   indexSkills,
   lintCatalog,
+  listExecutorAdapters,
   listRuns,
   planToMermaid,
   proposeOverlays,
@@ -47,6 +48,7 @@ try {
   else if (command === 'run') cmdRun(args.slice(1));
   else if (command === 'resume') cmdResume(args.slice(1));
   else if (command === 'runs') cmdRuns(args.slice(1));
+  else if (command === 'executors') cmdExecutors(args.slice(1));
   else if (command === 'artifact') cmdArtifact(args.slice(1));
   else die(`Unknown command: ${command}\nRun: sloom --help`);
 } catch (error) {
@@ -201,7 +203,7 @@ function cmdGraph(argv) {
 
 function cmdRun(argv) {
   const file = positional(argv)[0];
-  if (!file) die('Usage: sloom run <plan.json> [--executor local|auto|shell|handoff] [--dry-run] [--max-nodes N] [--json]');
+  if (!file) die('Usage: sloom run <plan.json> [--executor local|auto|shell|handoff|codex|claude-code|cao] [--dry-run] [--max-nodes N] [--json]');
   const dryRun = argv.includes('--dry-run');
   const plan = readJson(resolve(root, file));
   const catalog = ensureCatalog();
@@ -212,7 +214,7 @@ function cmdRun(argv) {
 
 function cmdResume(argv) {
   const runId = positional(argv)[0];
-  if (!runId) die('Usage: sloom resume <run-id> [--executor local|auto|shell|handoff] [--max-nodes N] [--json]');
+  if (!runId) die('Usage: sloom resume <run-id> [--executor local|auto|shell|handoff|codex|claude-code|cao] [--max-nodes N] [--json]');
   const catalog = ensureCatalog();
   const result = resumeWorkflowRun(runId, catalog, root, { maxNodes: getOption(argv, '--max-nodes'), executorMode: getOption(argv, '--executor') ?? getOption(argv, '--executor-mode') });
   if (argv.includes('--json')) printJson(result);
@@ -224,6 +226,19 @@ function cmdRuns(argv) {
   if (argv.includes('--json')) printJson(runs);
   else {
     for (const run of runs) console.log(`${run.id}\t${run.status}\t${run.nodes ?? 0}\t${run.planId ?? ''}`);
+  }
+}
+
+
+function cmdExecutors(argv) {
+  const adapters = listExecutorAdapters(root);
+  if (argv.includes('--json')) printJson(adapters);
+  else {
+    for (const adapter of adapters) {
+      const availability = adapter.available ? 'available' : 'not-found';
+      const command = adapter.command ? ` command=${adapter.command}` : '';
+      console.log(`${adapter.id}	${adapter.kind}	${availability}${command}	${adapter.description}`);
+    }
   }
 }
 
@@ -277,9 +292,10 @@ Usage:
   sloom plan --task "<task>" [--blueprint bugfix|feature] [--out plan.json]
   sloom validate <plan.json>
   sloom graph <plan.json> [--out graph.mmd]
-  sloom run <plan.json> [--executor local|auto|shell|handoff] [--dry-run] [--max-nodes N]
-  sloom resume <run-id> [--executor local|auto|shell|handoff] [--max-nodes N]
+  sloom run <plan.json> [--executor local|auto|shell|handoff|codex|claude-code|cao] [--dry-run] [--max-nodes N]
+  sloom resume <run-id> [--executor local|auto|shell|handoff|codex|claude-code|cao] [--max-nodes N]
   sloom runs [--json]
+  sloom executors [--json]
   sloom artifact put <run-id> <node-id> <artifact-name> <file>
 `);
 }

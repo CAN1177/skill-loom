@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, cpSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, cpSync, readFileSync, writeFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { applyOverlayProposal, createPlan, indexSkills, lintCatalog, listRuns, proposeOverlays, readBlueprint, readRunState, resumeWorkflowRun, rollbackBackup, routeTask, runWorkflowPlan, scanSkills, submitRunArtifact, validatePlan, writeInventory } from '../src/index.js';
+import { applyOverlayProposal, createPlan, indexSkills, lintCatalog, listExecutorAdapters, listRuns, mapPolicyToCaoAllowedTools, proposeOverlays, readBlueprint, readRunState, resumeWorkflowRun, rollbackBackup, routeTask, runWorkflowPlan, scanSkills, submitRunArtifact, validatePlan, writeInventory } from '../src/index.js';
 
 
 test('scans skills into non-invasive inventory', () => {
@@ -161,4 +161,73 @@ test('auto executor creates agent handoff packages and accepts submitted artifac
   const resumed = resumeWorkflowRun(result.id, catalog, root, { executorMode: 'auto' });
   assert.equal(resumed.status, 'paused');
   assert.ok(resumed.nodes.some(node => node.status === 'handoff-ready'));
+});
+
+test('lists executor adapters and maps sLoom policy to CAO allowedTools', () => {
+  const root = mkdtempSync(join(tmpdir(), 'sloom-test-'));
+  const adapters = listExecutorAdapters(root);
+  assert.ok(adapters.some(adapter => adapter.id === 'codex'));
+  assert.ok(adapters.some(adapter => adapter.id === 'claude-code'));
+  assert.ok(adapters.some(adapter => adapter.id === 'cao'));
+
+  assert.deepEqual(mapPolicyToCaoAllowedTools({ permissions: ['filesystem.read'] }), ['@cao-mcp-server', 'fs_read', 'fs_list']);
+  assert.deepEqual(mapPolicyToCaoAllowedTools({ permissions: ['filesystem.write', 'shell.test'] }), ['@cao-mcp-server', 'fs_read', 'fs_list', 'fs_write', 'execute_bash']);
+});
+
+test('cao executor creates dispatch package and launch script for agent node', () => {
+  const root = mkdtempSync(join(tmpdir(), 'sloom-test-'));
+  cpSync(join(process.cwd(), 'examples'), join(root, 'examples'), { recursive: true });
+  cpSync(join(process.cwd(), 'packs'), join(root, 'packs'), { recursive: true });
+  cpSync(join(process.cwd(), 'blueprints'), join(root, 'blueprints'), { recursive: true });
+  const catalog = indexSkills(['examples/skills'], root);
+  const task = '给 sLoom CLI 增加 status 命令展示 inventory catalog overlays backups';
+  const route = routeTask(task, { catalog });
+  const blueprint = readBlueprint('feature', root);
+  const plan = createPlan({ task, catalog, blueprint, route, id: 'cao-dispatch-flow' });
+
+  const result = runWorkflowPlan(plan, catalog, root, { executorMode: 'cao' });
+  assert.equal(result.status, 'paused');
+  assert.ok(result.nodes.some(node => node.status === 'succeeded' && node.skill === 'repo.exploration'));
+  const handoffNode = result.nodes.find(node => node.status === 'handoff-ready');
+  assert.ok(handoffNode);
+  assert.equal(handoffNode.handoff.adapter, 'cao');
+  assert.equal(handoffNode.handoff.executor, 'cao');
+  assert.ok(handoffNode.handoff.dispatch.endsWith('/dispatch.json'));
+  assert.ok(handoffNode.handoff.launchScript.endsWith('/launch-cao.sh'));
+  assert.ok(handoffNode.handoff.allowedTools.includes('@cao-mcp-server'));
+
+  const dispatch = JSON.parse(readFileSync(join(root, handoffNode.handoff.dispatch), 'utf8'));
+  assert.equal(dispatch.kind, 'ExecutorDispatch');
+  assert.equal(dispatch.adapter, 'cao');
+  assert.equal(dispatch.node, handoffNode.id);
+  assert.ok(dispatch.allowedTools.includes('fs_read'));
+  assert.equal(existsSync(join(root, dispatch.prompt)), true);
+  assert.equal(existsSync(join(root, handoffNode.handoff.launchScript)), true);
+  assert.equal(Boolean(statSync(join(root, handoffNode.handoff.launchScript)).mode & 0o111), true);
+  const launch = readFileSync(join(root, handoffNode.handoff.launchScript), 'utf8');
+  assert.ok(launch.includes('cao launch'));
+  assert.ok(launch.includes('--allowed-tools'));
+});
+
+test('codex executor creates dispatch package for agent node', () => {
+  const root = mkdtempSync(join(tmpdir(), 'sloom-test-'));
+  cpSync(join(process.cwd(), 'examples'), join(root, 'examples'), { recursive: true });
+  cpSync(join(process.cwd(), 'packs'), join(root, 'packs'), { recursive: true });
+  cpSync(join(process.cwd(), 'blueprints'), join(root, 'blueprints'), { recursive: true });
+  const catalog = indexSkills(['examples/skills'], root);
+  const task = '给 sLoom CLI 增加 status 命令展示 inventory catalog overlays backups';
+  const route = routeTask(task, { catalog });
+  const blueprint = readBlueprint('feature', root);
+  const plan = createPlan({ task, catalog, blueprint, route, id: 'codex-dispatch-flow' });
+
+  const result = runWorkflowPlan(plan, catalog, root, { executorMode: 'codex' });
+  assert.equal(result.status, 'paused');
+  const handoffNode = result.nodes.find(node => node.status === 'handoff-ready');
+  assert.ok(handoffNode);
+  assert.equal(handoffNode.handoff.adapter, 'codex');
+  assert.ok(handoffNode.handoff.dispatch.endsWith('/dispatch.json'));
+  const dispatch = JSON.parse(readFileSync(join(root, handoffNode.handoff.dispatch), 'utf8'));
+  assert.equal(dispatch.adapter, 'codex');
+  assert.equal(dispatch.command.command, 'codex');
+  assert.equal(existsSync(join(root, dispatch.prompt)), true);
 });

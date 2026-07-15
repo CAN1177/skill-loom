@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 
 export const SLOOM_DIR = '.sloom';
@@ -607,6 +607,34 @@ export function listRuns(root = process.cwd()) {
     .sort((a, b) => String(b.updatedAt ?? b.id).localeCompare(String(a.updatedAt ?? a.id)));
 }
 
+export function listExecutorAdapters(root = process.cwd()) {
+  return [
+    { id: 'local', kind: 'runtime', available: true, description: 'Deterministic local artifact materializer; never mutates source files.' },
+    { id: 'shell', kind: 'runtime', available: true, description: 'Safe shell executor with sLoom policy allowlist.' },
+    { id: 'handoff', kind: 'agent-handoff', available: true, description: 'Generic agent handoff package for human/agent execution.' },
+    { id: 'codex', kind: 'agent-dispatch', command: 'codex', available: isCommandAvailable('codex', root), description: 'Codex CLI dispatch package; explicit human/agent attach required.' },
+    { id: 'claude-code', kind: 'agent-dispatch', command: 'claude', available: isCommandAvailable('claude', root), description: 'Claude Code dispatch package; explicit human/agent attach required.' },
+    { id: 'cao', kind: 'cao-dispatch', command: 'cao', available: isCommandAvailable('cao', root), description: 'CLI Agent Orchestrator dispatch package with allowedTools mapping.' }
+  ];
+}
+
+export function mapPolicyToCaoAllowedTools(policy = {}) {
+  const permissions = policy.permissions ?? [];
+  const tools = new Set(['@cao-mcp-server']);
+  if (permissions.includes('filesystem.read')) {
+    tools.add('fs_read');
+    tools.add('fs_list');
+  }
+  if (permissions.includes('filesystem.write')) {
+    tools.add('fs_read');
+    tools.add('fs_list');
+    tools.add('fs_write');
+  }
+  if (permissions.includes('shell.readonly') || permissions.includes('shell.test')) tools.add('execute_bash');
+  if (permissions.includes('network.read') || permissions.includes('web.fetch')) tools.add('web_fetch');
+  return [...tools];
+}
+
 function executeRunState({ state, manifest, plan, catalog, root, runDir, dryRun, maxNodes = Infinity, executorMode = 'local', shellCommands = null }) {
   const ordered = topologicalSort(plan.spec?.nodes ?? []);
   const stateById = new Map((state.nodes ?? []).map(node => [node.id, node]));
@@ -655,7 +683,7 @@ function executeRunState({ state, manifest, plan, catalog, root, runDir, dryRun,
         nodeState.handoff = result.handoff;
         nodeState.finishedAt = null;
         paused = true;
-        appendRunEvent(runDir, { type: 'node.handoff_ready', node: node.id, executor: node.executor, handoff: result.handoff });
+        appendRunEvent(runDir, { type: 'node.handoff_ready', node: node.id, executor: result.executor, handoff: result.handoff });
       } else if (result.status === 'failed') {
         nodeState.status = 'failed';
         nodeState.finishedAt = new Date().toISOString();
@@ -706,6 +734,11 @@ function selectExecutorAdapter({ node, skill, executorMode }) {
   }
   if (executorMode === 'shell') return preferred === 'shell' && hasShellPermission(skill) ? 'shell' : 'local';
   if (executorMode === 'handoff') return isAgentExecutor(preferred) ? 'handoff' : 'local';
+  if (['codex', 'claude-code', 'cao'].includes(executorMode)) {
+    if (preferred === 'shell' && hasShellPermission(skill)) return 'shell';
+    if (isAgentExecutor(preferred) || preferred === executorMode) return executorMode;
+    return 'local';
+  }
   return 'local';
 }
 
@@ -730,7 +763,7 @@ function executeShellNode({ node, skill, plan, manifest, root, runDir, shellComm
   return { status: allPassed ? 'succeeded' : 'failed', executor: 'shell', outputs, error: allPassed ? null : 'one or more safe shell commands failed' };
 }
 
-function executeHandoffNode({ node, skill, plan, manifest, root, runDir }) {
+function executeHandoffNode({ node, skill, plan, manifest, root, runDir, adapter = 'handoff' }) {
   const inputArtifacts = resolveInputArtifacts(node.inputs ?? [], manifest);
   const handoffDir = join(runDir, 'handoffs', safePathSegment(node.id));
   mkdirSync(handoffDir, { recursive: true });
@@ -740,23 +773,142 @@ function executeHandoffNode({ node, skill, plan, manifest, root, runDir }) {
   writeFileSync(join(handoffDir, 'task.md'), taskMd);
   writeJson(join(handoffDir, 'inputs.json'), { apiVersion: 'sloom.dev/v1alpha1', kind: 'AgentHandoffInputs', node: node.id, inputs });
   writeJson(join(handoffDir, 'expected-outputs.json'), { apiVersion: 'sloom.dev/v1alpha1', kind: 'AgentHandoffExpectedOutputs', node: node.id, outputs: expectedOutputs });
+  const dispatch = adapter === 'handoff' ? null : createAgentDispatchPackage({ adapter, node, skill, plan, root, runDir, handoffDir, inputs, expectedOutputs });
   return {
     status: 'handoff-ready',
-    executor: 'handoff',
+    executor: adapter,
     outputs: [],
     handoff: {
-      executor: node.executor ?? skill.execution?.preferredExecutor ?? 'agent',
+      adapter,
+      executor: adapter === 'handoff' ? (node.executor ?? skill.execution?.preferredExecutor ?? 'agent') : adapter,
       task: relative(root, join(handoffDir, 'task.md')),
       inputs: relative(root, join(handoffDir, 'inputs.json')),
-      expectedOutputs: relative(root, join(handoffDir, 'expected-outputs.json'))
+      expectedOutputs: relative(root, join(handoffDir, 'expected-outputs.json')),
+      ...(dispatch ? { dispatch: dispatch.manifest, launchScript: dispatch.launchScript, status: dispatch.status, allowedTools: dispatch.allowedTools, sessionName: dispatch.sessionName } : {})
     }
   };
+}
+
+function createAgentDispatchPackage({ adapter, node, skill, plan, root, runDir, handoffDir, inputs, expectedOutputs }) {
+  const now = new Date().toISOString();
+  const runId = basename(runDir);
+  const dispatchDir = join(runDir, 'dispatches', safePathSegment(node.id), safePathSegment(adapter));
+  mkdirSync(dispatchDir, { recursive: true });
+  const promptFile = join(dispatchDir, 'prompt.md');
+  const statusFile = join(dispatchDir, 'status.json');
+  const manifestFile = join(dispatchDir, 'dispatch.json');
+  const sessionName = `sloom-${safePathSegment(runId).slice(0, 40)}-${safePathSegment(node.id)}`.slice(0, 80);
+  const allowedTools = adapter === 'cao' ? mapPolicyToCaoAllowedTools(skill.policy ?? {}) : [];
+  const prompt = renderAgentDispatchPrompt({ adapter, node, skill, plan, inputs, expectedOutputs, runId });
+  writeFileSync(promptFile, prompt);
+  const dispatch = {
+    apiVersion: 'sloom.dev/v1alpha1',
+    kind: 'ExecutorDispatch',
+    id: `${runId}:${node.id}:${adapter}`,
+    runId,
+    node: node.id,
+    skill: skill.id ?? node.skill,
+    adapter,
+    provider: adapter,
+    status: 'created',
+    createdAt: now,
+    workingDirectory: root,
+    sessionName,
+    prompt: relative(root, promptFile),
+    sourceHandoff: relative(root, join(handoffDir, 'task.md')),
+    expectedOutputs,
+    inputs,
+    policy: {
+      permissions: skill.policy?.permissions ?? [],
+      denyCommands: skill.policy?.denyCommands ?? []
+    },
+    allowedTools,
+    command: suggestedDispatchCommand({ adapter, root, promptFile, sessionName, allowedTools })
+  };
+  writeJson(manifestFile, dispatch);
+  writeJson(statusFile, { apiVersion: 'sloom.dev/v1alpha1', kind: 'ExecutorDispatchStatus', dispatch: dispatch.id, status: 'created', updatedAt: now, sessionName, logs: [] });
+  const launchScript = adapter === 'cao' ? writeCaoLaunchScript({ dispatchDir, promptFile, root, sessionName, allowedTools }) : null;
+  return {
+    manifest: relative(root, manifestFile),
+    status: relative(root, statusFile),
+    launchScript: launchScript ? relative(root, launchScript) : null,
+    allowedTools,
+    sessionName
+  };
+}
+
+function suggestedDispatchCommand({ adapter, root, promptFile, sessionName, allowedTools }) {
+  if (adapter === 'cao') {
+    return {
+      command: 'cao',
+      args: ['launch', '--agents', '${SLOOM_CAO_PROFILE:-sloom_worker}', '--headless', '--async', '--session-name', sessionName, '--working-directory', root, ...allowedTools.flatMap(tool => ['--allowed-tools', tool]), '<prompt-from-file>'],
+      promptFile: relative(root, promptFile)
+    };
+  }
+  if (adapter === 'claude-code') return { command: 'claude', args: ['<', relative(root, promptFile)], promptFile: relative(root, promptFile), note: 'Run Claude Code in this workspace and provide the prompt file content.' };
+  if (adapter === 'codex') return { command: 'codex', args: ['<', relative(root, promptFile)], promptFile: relative(root, promptFile), note: 'Run Codex CLI in this workspace and provide the prompt file content.' };
+  return { command: adapter, args: [], promptFile: relative(root, promptFile) };
+}
+
+function writeCaoLaunchScript({ dispatchDir, promptFile, root, sessionName, allowedTools }) {
+  const script = join(dispatchDir, 'launch-cao.sh');
+  const allowed = allowedTools.map(tool => ` --allowed-tools ${shellQuote(tool)}`).join('');
+  const content = [
+    '#!/usr/bin/env sh',
+    'set -eu',
+    `PROMPT_FILE=${shellQuote(promptFile)}`,
+    `cao launch --agents "${'${SLOOM_CAO_PROFILE:-sloom_worker}'}" --headless --async --session-name ${shellQuote(sessionName)} --working-directory ${shellQuote(root)}${allowed} "$(cat "$PROMPT_FILE")"`,
+    ''
+  ].join('\n');
+  writeFileSync(script, content);
+  try { chmodSync(script, 0o755); } catch {}
+  return script;
+}
+
+function renderAgentDispatchPrompt({ adapter, node, skill, plan, inputs, expectedOutputs, runId }) {
+  return [
+    `# sLoom ${adapter} dispatch: ${node.id}`,
+    '',
+    `You are a real agent executor for sLoom run \`${runId}\`. Execute only this frozen workflow node; do not modify plan.lock.json or other run-state files except by using sLoom CLI commands documented below.`,
+    '',
+    '## User task',
+    '',
+    plan.spec?.task?.description ?? '',
+    '',
+    '## Node contract',
+    '',
+    `- Node: \`${node.id}\``,
+    `- Skill: \`${skill.id ?? node.skill}\` (${skill.title ?? node.skill})`,
+    `- Adapter: \`${adapter}\``,
+    `- Skill source: ${skill.source?.path ?? skill.skillPath ?? ''}`,
+    '',
+    '## Inputs',
+    '',
+    ...(inputs.length ? inputs.map(item => `- ${item.name}: ${item.path ?? '(missing)'} ${item.checksum ? `(${item.checksum})` : ''}`) : ['- None']),
+    '',
+    '## Expected outputs',
+    '',
+    ...(expectedOutputs.length ? expectedOutputs.map(item => `- ${item.name}: produce Markdown, then submit with \`sloom artifact put ${runId} ${node.id} ${item.name} <file> --executor ${adapter}\``) : ['- None']),
+    '',
+    '## Safety and policy',
+    '',
+    `- Permissions: ${(skill.policy?.permissions ?? []).join(', ') || '(none declared)'}`,
+    `- Deny commands: ${(skill.policy?.denyCommands ?? []).join(', ') || '(none)'}`,
+    '- Do not run destructive commands. Do not push to git remotes unless the human explicitly asks.',
+    '- If implementation changes files, include changed file paths and verification commands in the submitted artifact.',
+    '- If you cannot complete the node, write a failure artifact explaining the blocker instead of editing run-state by hand.',
+    ''
+  ].join('\n');
+}
+
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, `'"'"'`)}'`;
 }
 
 function executeNodeWithAdapter({ node, skill, plan, manifest, root, runDir, executorMode, shellCommands }) {
   const adapter = selectExecutorAdapter({ node, skill, executorMode });
   if (adapter === 'shell') return executeShellNode({ node, skill, plan, manifest, root, runDir, shellCommands });
-  if (adapter === 'handoff') return executeHandoffNode({ node, skill, plan, manifest, root, runDir });
+  if (['handoff', 'codex', 'claude-code', 'cao'].includes(adapter)) return executeHandoffNode({ node, skill, plan, manifest, root, runDir, adapter });
   const outputs = executeDeterministicNode({ node, skill, plan, manifest, root, runDir, adapter: 'local' });
   return { status: 'succeeded', executor: 'local', outputs };
 }
@@ -795,7 +947,7 @@ function writeArtifactRecord({ manifest, root, runDir, node, skill, outputName, 
 
 function normalizeExecutorMode(value) {
   const mode = String(value ?? 'local').toLowerCase();
-  if (['local', 'auto', 'shell', 'handoff'].includes(mode)) return mode;
+  if (['local', 'auto', 'shell', 'handoff', 'codex', 'claude-code', 'cao'].includes(mode)) return mode;
   return 'local';
 }
 
@@ -1177,6 +1329,11 @@ export function readPack(idOrFile, root = process.cwd()) {
   const file = existsSync(direct) ? direct : join(root, 'packs', idOrFile, 'pack.json');
   if (existsSync(file)) return readJson(file);
   return null;
+}
+
+function isCommandAvailable(command, root = process.cwd()) {
+  const result = spawnSync('sh', ['-lc', `command -v ${command}`], { cwd: root, encoding: 'utf8', timeout: 3000 });
+  return result.status === 0 && Boolean(String(result.stdout ?? '').trim());
 }
 
 export function readJson(file) {

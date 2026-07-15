@@ -45,9 +45,12 @@ sLoom 的目标不是再造一个“大而全 Agent”，而是把这些已有 S
 - Plan validator
 - Mermaid graph 输出
 - dry-run trace writer
+- 可恢复的 Workflow Artifact Runtime
+- safe shell executor 和 agent handoff runtime
+- Codex / Claude Code / CAO dispatch packages
 - 示例 Skills、Pack、Blueprint 和 WorkflowPlan
 
-后续计划包括 SQLite/FTS、LLM rerank、Claude Code/Codex 真实执行、worktree 隔离和 CAO adapter。
+SQLite/FTS、LLM rerank、显式 opt-in 的真实子进程执行、worktree 隔离、更完整的 CAO log 回收和 Gate 强制执行是后续里程碑。
 
 ## 快速开始
 
@@ -110,28 +113,37 @@ node packages/cli/bin/sloom.js run .sloom/plans/search-empty-bug.json --executor
 ```
 
 
-P3 的运行目录还可能包含 Agent handoff package：
+P3/P4 run 目录还可能包含 agent handoff 和 dispatch package：
 
 ```text
-.sloom/runs/<run-id>/handoffs/<node-id>/
-  task.md
-  inputs.json
-  expected-outputs.json
+.sloom/runs/<run-id>/
+  handoffs/<node-id>/
+    task.md
+    inputs.json
+    expected-outputs.json
+  dispatches/<node-id>/<adapter>/
+    prompt.md
+    dispatch.json
+    status.json
+    launch-cao.sh        # 仅 CAO
 ```
 
-这让 sLoom 现在就能在 Claude CLI 或 Codex CLI 中使用：sLoom 负责 routing、plan lock、policy、state、events 和 artifacts；外层 Agent 执行 handoff task，并把结果提交回运行时。
+这让 sLoom 现在就能在 Claude CLI 或 Codex CLI 中使用：sLoom 负责 routing、plan lock、policy、state、events 和 artifacts；外层 Agent 执行 handoff task，并把结果提交回运行时。更多说明见 [Agent Integration](docs/agent-integration.md) 和可选的 [sLoom Entry Skill](skills/sloom-orchestrator/SKILL.md)。
 
 当前默认 local runtime 是确定性、安全的：不会修改源码，只会把每个节点的输出物化为可追踪 Artifact，便于检查和恢复。
 
-P3 增加了显式 Executor Adapter 模式。`--executor auto` 会对 policy 允许的 shell 节点执行小范围 safe-command allowlist；对 Codex / Claude Code 节点则生成可持久化的 handoff package，而不是偷偷启动 Agent 或直接改源码。真实 Agent 完成任务后写出 Markdown Artifact，通过 `sloom artifact put` 回填，再用 `sloom resume --executor auto` 继续 DAG。
+P3 增加了显式 Executor Adapter 模式。`--executor auto` 会对 policy 允许的 shell 节点执行小范围 safe-command allowlist；对 Codex / Claude Code 节点则生成可持久化的 handoff package，而不是偷偷启动 Agent 或直接改源码。P4 进一步提供 provider dispatch package：`--executor codex`、`--executor claude-code`、`--executor cao` 会生成可审计的 prompt/spec，其中 CAO 的 `allowedTools` 会从 sLoom policy 映射而来。真实 Agent 完成任务后写出 Markdown Artifact，通过 `sloom artifact put` 回填，再用 `sloom resume --executor auto|cao` 继续 DAG。
 
 常用命令：
 
 ```bash
+node packages/cli/bin/sloom.js executors
 node packages/cli/bin/sloom.js run .sloom/plans/search-empty-bug.json --max-nodes 2
 node packages/cli/bin/sloom.js run .sloom/plans/search-empty-bug.json --executor auto
-node packages/cli/bin/sloom.js artifact put <run-id> analysis requirement.spec ./requirement.spec.md
-node packages/cli/bin/sloom.js resume <run-id> --executor auto
+node packages/cli/bin/sloom.js run .sloom/plans/search-empty-bug.json --executor cao
+sh .sloom/runs/<run-id>/dispatches/<node-id>/cao/launch-cao.sh
+node packages/cli/bin/sloom.js artifact put <run-id> analysis requirement.spec ./requirement.spec.md --executor cao
+node packages/cli/bin/sloom.js resume <run-id> --executor cao
 node packages/cli/bin/sloom.js runs --json
 ```
 
@@ -146,7 +158,8 @@ blueprints/          bugfix、feature 等工作流骨架
 packs/               面向场景的 Skill 集合和路由策略
 schemas/             metadata overlay 和 plan 的 JSON Schemas
 examples/            示例 Skills 和 Plans
-docs/                架构说明和路线图
+docs/                架构说明、Agent 集成说明和路线图
+skills/              可选的 sLoom Entry Skill，用于 Agent 自然语言调用
 ```
 
 ## Skill metadata overlay
@@ -244,9 +257,8 @@ Skill 选择、计划生成、权限策略和质量门属于 sLoom Core；执行
 - 用 SQLite + FTS5 替换 JSON Catalog
 - 增强 schema validation
 - 支持 plans 和 metadata overlays 的 YAML round-trip
-- 实现带 command policy checks 的 Shell executor
-- 增加 Claude Code executor adapter
-- 增加 git worktree 隔离和可恢复 run state
+- 增加 Codex、Claude Code、CAO 的显式 opt-in 子进程/会话监控
+- 增加 git worktree 隔离
 - 建立 routing / planning eval datasets
 
 ## License

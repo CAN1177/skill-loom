@@ -984,23 +984,31 @@ npm run check
 
 ### P4：Agent Executor 与 CAO Adapter
 
-目标：将 Claude Code、Codex、CAO 接入为可控执行器。
+目标：将 Claude Code、Codex、CAO 接入为可控执行器。P4 当前采用安全的 dispatch-first 闭环：sLoom 生成冻结节点的 handoff、prompt、dispatch spec 和 CAO launch script；外部 Agent / CAO 执行后仍必须通过 Artifact Manifest 回填结果。
 
-任务：
+已完成的 P4 最小闭环：
 
-- [ ] 抽象 ExecutorAdapter。
-- [ ] `executor-codex`：执行单节点任务，输出 Artifact。
-- [ ] `executor-claude-code`：执行单节点任务，输出 Artifact。
-- [ ] `executor-cao`：通过 CAO handoff/assign 下发冻结节点。
-- [ ] 捕获 CAO terminal/session/log/status。
-- [ ] 映射 CAO allowedTools 到 sLoom policy。
-- [ ] 支持人类 attach 指引。
+- [x] 扩展 ExecutorAdapter 调度：`local | auto | shell | handoff | codex | claude-code | cao`。
+- [x] `sloom executors [--json]`：查看本机 adapter 与命令可用性。
+- [x] `executor-codex` dispatch package：为单节点任务生成 `prompt.md`、`dispatch.json`、`status.json`。
+- [x] `executor-claude-code` dispatch package：为单节点任务生成 `prompt.md`、`dispatch.json`、`status.json`。
+- [x] `executor-cao` dispatch package：生成 CAO prompt/spec/status 与 `launch-cao.sh`。
+- [x] 映射 CAO `allowedTools` 到 sLoom policy。
+- [x] 支持人类 attach 指引：dispatch spec、handoff task 与 CAO launch script。
+- [x] 增加 Agent Entry Skill：`skills/sloom-orchestrator/SKILL.md`。
+
+后续增强：
+
+- [ ] Codex / Claude Code 子进程直连 executor（显式 opt-in）。
+- [ ] 捕获 CAO terminal/session/log/status，并写入 dispatch status。
+- [ ] 自动从 CAO session 收集候选产物，但仍要求进入 Artifact Manifest。
+- [ ] 更严格的 worktree/file-conflict 隔离。
 
 验收标准：
 
-- `sloom run plan.lock --executor codex` 能完成一个只读分析节点。
-- `sloom run plan.lock --executor cao` 能下发一个实现节点，并回收日志和产物。
-- Worker 无法隐式修改 plan.lock。
+- `sloom run <plan> --executor codex` 能为 Agent 节点创建可审计 dispatch package，并暂停等待 Artifact 回填。
+- `sloom run <plan> --executor cao` 能下发冻结节点 launch spec/script，并包含从 policy 映射的 CAO `allowedTools`。
+- Worker 无法隐式修改 `plan.lock.json`；节点完成必须通过 `sloom artifact put` 进入 manifest。
 
 ### P5：质量评估与团队推广
 
