@@ -64,6 +64,10 @@ node packages/cli/bin/sloom.js scan examples/skills
 # 生成缺失 overlay 的建议，不修改原始 Skill 目录
 node packages/cli/bin/sloom.js propose --from .sloom/inventory.json
 
+# Review 后把 overlay 写入 .sloom/overlays，并生成可回滚备份
+node packages/cli/bin/sloom.js apply .sloom/proposals/overlays.json --yes --backup
+# node packages/cli/bin/sloom.js rollback <backup-id>
+
 # 使用 Pack overlays 索引示例 Skills
 node packages/cli/bin/sloom.js index examples/skills
 
@@ -100,7 +104,7 @@ docs/                架构说明和路线图
 
 ## Skill metadata overlay
 
-sLoom 默认不应该修改你已有的本地 Skill。`SKILL.md` 目录应被视为只读资产，编排元数据放在 sLoom 工作区或 Pack 中：
+sLoom 默认不应该修改你已有的本地 Skill。`scan -> propose -> apply --backup` 让每一次元数据变更都可审查、可回滚。`SKILL.md` 目录应被视为只读资产，编排元数据放在 sLoom 工作区或 Pack 中：
 
 ```text
 # 已存在的 Skill，只读

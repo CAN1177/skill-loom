@@ -50,6 +50,10 @@ node packages/cli/bin/sloom.js scan examples/skills
 # Propose missing overlays without mutating skill directories
 node packages/cli/bin/sloom.js propose --from .sloom/inventory.json
 
+# Review, then apply overlays into .sloom/overlays with a rollback backup
+node packages/cli/bin/sloom.js apply .sloom/proposals/overlays.json --yes --backup
+# node packages/cli/bin/sloom.js rollback <backup-id>
+
 # Index example skills with pack overlays
 node packages/cli/bin/sloom.js index examples/skills
 
@@ -86,7 +90,7 @@ docs/                architecture notes and roadmap
 
 ## Skill metadata overlay
 
-sLoom should not mutate your existing local skills by default. Treat `SKILL.md` directories as read-only source assets, then store orchestration metadata in the project workspace or in a pack:
+sLoom should not mutate your existing local skills by default. The `scan -> propose -> apply --backup` workflow keeps every metadata change reviewable and reversible. Treat `SKILL.md` directories as read-only source assets, then store orchestration metadata in the project workspace or in a pack:
 
 ```text
 # Existing skill, read-only

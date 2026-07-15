@@ -2,6 +2,7 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import {
+  applyOverlayProposal,
   createPlan,
   ensureSloom,
   indexSkills,
@@ -13,6 +14,7 @@ import {
   readConfig,
   readJson,
   readPack,
+  rollbackBackup,
   routeTask,
   scanSkills,
   validatePlan,
@@ -30,6 +32,8 @@ try {
   else if (command === 'init') cmdInit(args.slice(1));
   else if (command === 'scan') cmdScan(args.slice(1));
   else if (command === 'propose') cmdPropose(args.slice(1));
+  else if (command === 'apply') cmdApply(args.slice(1));
+  else if (command === 'rollback') cmdRollback(args.slice(1));
   else if (command === 'index') cmdIndex(args.slice(1));
   else if (command === 'skills') cmdSkills(args.slice(1));
   else if (command === 'route') cmdRoute(args.slice(1));
@@ -69,6 +73,36 @@ function cmdPropose(argv) {
   writeJson(resolve(root, out), proposal);
   console.log(`Proposed ${proposal.changes.length} overlay change(s) into ${out}`);
   for (const change of proposal.changes) console.log(`- ${change.action} ${change.id} -> ${change.targetPath}`);
+}
+
+
+function cmdApply(argv) {
+  const file = positional(argv)[0] ?? '.sloom/proposals/overlays.json';
+  const dryRun = argv.includes('--dry-run');
+  const yes = argv.includes('--yes') || argv.includes('--approved');
+  const backup = argv.includes('--backup');
+  const proposal = readJson(resolve(root, file));
+  const result = applyOverlayProposal(proposal, root, { dryRun, yes, backup, proposalPath: file });
+  if (!yes && !dryRun) {
+    console.log(`Review mode: ${result.writes.length} overlay write(s) planned. Re-run with --yes to apply.`);
+  } else if (dryRun) {
+    console.log(`Dry run: ${result.writes.length} overlay write(s) planned.`);
+  } else {
+    console.log(`Applied ${result.writes.length} overlay write(s).`);
+    if (result.backupId) console.log(`Backup: ${result.backupId}`);
+  }
+  for (const write of result.writes) {
+    const marker = write.previousExists ? 'update' : 'create';
+    console.log(`- ${marker} ${write.id} -> ${write.targetPath}`);
+  }
+}
+
+function cmdRollback(argv) {
+  const backupId = positional(argv)[0];
+  if (!backupId) die('Usage: sloom rollback <backup-id> [--dry-run]');
+  const result = rollbackBackup(backupId, root, { dryRun: argv.includes('--dry-run') });
+  console.log(`${result.dryRun ? 'Dry-run rollback' : 'Rolled back'} ${result.actions.length} file action(s) from ${backupId}`);
+  for (const action of result.actions) console.log(`- ${action.action} ${action.targetPath}`);
 }
 
 function cmdIndex(argv) {
@@ -192,9 +226,23 @@ function ensureCatalog() {
 }
 
 function help() {
-  console.log(`sLoom — Skill-first Orchestrator CLI\n\nUsage:\n  sloom init\n  sloom scan [skill-path ...] [--out .sloom/inventory.json]\n  sloom propose [--from .sloom/inventory.json] [--out .sloom/proposals/overlays.json]\n  sloom index [skill-path ...]\n  sloom skills list|show <id>|lint [--strict]\n  sloom route "<task>" [--pack <id>] [--json]\n  sloom plan --task "<task>" [--blueprint bugfix|feature] [--out plan.json]\n  sloom validate <plan.json>\n  sloom graph <plan.json> [--out graph.mmd]\n  sloom run <plan.json> --dry-run\n`);
-}
+  console.log(`sLoom — Skill-first Orchestrator CLI
 
+Usage:
+  sloom init
+  sloom scan [skill-path ...] [--out .sloom/inventory.json]
+  sloom propose [--from .sloom/inventory.json] [--out .sloom/proposals/overlays.json]
+  sloom apply <proposal.json> --yes [--backup]
+  sloom rollback <backup-id> [--dry-run]
+  sloom index [skill-path ...]
+  sloom skills list|show <id>|lint [--strict]
+  sloom route "<task>" [--pack <id>] [--json]
+  sloom plan --task "<task>" [--blueprint bugfix|feature] [--out plan.json]
+  sloom validate <plan.json>
+  sloom graph <plan.json> [--out graph.mmd]
+  sloom run <plan.json> --dry-run
+`);
+}
 function getOption(argv, name) {
   const idx = argv.indexOf(name);
   if (idx !== -1) return argv[idx + 1];

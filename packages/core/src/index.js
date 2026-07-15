@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 
 export const SLOOM_DIR = '.sloom';
 export const CATALOG_FILE = join(SLOOM_DIR, 'catalog.json');
 export const INVENTORY_FILE = join(SLOOM_DIR, 'inventory.json');
+export const BACKUPS_DIR = join(SLOOM_DIR, 'backups');
 
 export function ensureSloom(root = process.cwd()) {
   const dir = join(root, SLOOM_DIR);
@@ -13,6 +14,7 @@ export function ensureSloom(root = process.cwd()) {
   mkdirSync(join(dir, 'runs'), { recursive: true });
   mkdirSync(join(dir, 'overlays', 'skills'), { recursive: true });
   mkdirSync(join(dir, 'proposals'), { recursive: true });
+  mkdirSync(join(dir, 'backups'), { recursive: true });
   if (!existsSync(join(root, 'sloom.config.json'))) {
     writeJson(join(root, 'sloom.config.json'), {
       $schema: './schemas/sloom.config.schema.json',
@@ -106,6 +108,143 @@ export function proposeOverlays(inventory, options = {}) {
   };
 }
 
+
+export function applyOverlayProposal(proposal, root = process.cwd(), options = {}) {
+  const { yes = false, dryRun = false, backup = false, proposalPath = null } = options;
+  assertOverlayProposal(proposal);
+  ensureSloom(root);
+  const changes = (proposal.changes ?? []).filter(change => change.action === 'upsert-overlay');
+  const planned = changes.map(change => planOverlayWrite(change, root));
+  const rejected = planned.find(item => !isInsideLocalOverlayDir(item.absoluteTarget, root));
+  if (rejected) throw new Error(`Refusing to write outside ${join(SLOOM_DIR, 'overlays', 'skills')}: ${rejected.targetPath}`);
+
+  const result = {
+    apiVersion: 'sloom.dev/v1alpha1',
+    kind: 'SkillOverlayApplyResult',
+    dryRun,
+    applied: false,
+    backupId: null,
+    backupManifest: null,
+    writes: planned.map(({ absoluteTarget, overlay, ...item }) => item)
+  };
+
+  if (dryRun || !yes) return result;
+
+  let manifest = null;
+  if (backup) {
+    manifest = createBackupManifest({ proposal, proposalPath, planned, root });
+    writeBackupManifest(manifest, root);
+    result.backupId = manifest.id;
+    result.backupManifest = relative(root, join(root, BACKUPS_DIR, manifest.id, 'manifest.json'));
+  }
+
+  for (const item of planned) {
+    writeJson(item.absoluteTarget, item.overlay);
+  }
+
+  result.applied = true;
+  return result;
+}
+
+export function rollbackBackup(backupId, root = process.cwd(), options = {}) {
+  if (!backupId) throw new Error('backupId is required');
+  const backupRoot = join(root, BACKUPS_DIR, backupId);
+  const manifestFile = join(backupRoot, 'manifest.json');
+  if (!existsSync(manifestFile)) throw new Error(`Backup manifest not found: ${join(BACKUPS_DIR, backupId, 'manifest.json')}`);
+  const manifest = readJson(manifestFile);
+  const dryRun = options.dryRun ?? false;
+  const actions = [];
+
+  for (const file of manifest.files ?? []) {
+    const target = resolveMaybe(root, file.targetPath);
+    if (!isInsideLocalOverlayDir(target, root)) throw new Error(`Refusing to rollback outside ${join(SLOOM_DIR, 'overlays', 'skills')}: ${file.targetPath}`);
+    if (file.existedBefore) {
+      const backupFile = join(backupRoot, file.backupFile);
+      actions.push({ action: 'restore', targetPath: file.targetPath, backupFile: file.backupFile });
+      if (!dryRun) {
+        mkdirSync(dirname(target), { recursive: true });
+        copyFileSync(backupFile, target);
+      }
+    } else {
+      actions.push({ action: 'remove-created', targetPath: file.targetPath });
+      if (!dryRun && existsSync(target)) rmSync(target, { force: true });
+    }
+  }
+
+  return {
+    apiVersion: 'sloom.dev/v1alpha1',
+    kind: 'SkillOverlayRollbackResult',
+    dryRun,
+    backupId,
+    rolledBack: !dryRun,
+    actions
+  };
+}
+
+function assertOverlayProposal(proposal) {
+  if (!proposal || proposal.kind !== 'SkillOverlayProposal') throw new Error('Expected kind=SkillOverlayProposal');
+  if (!Array.isArray(proposal.changes)) throw new Error('SkillOverlayProposal.changes must be an array');
+}
+
+function planOverlayWrite(change, root) {
+  if (!change.id) throw new Error('Proposal change is missing id');
+  if (!change.overlay || typeof change.overlay !== 'object') throw new Error(`Proposal change ${change.id} is missing overlay`);
+  const targetPath = change.targetPath ?? join(SLOOM_DIR, 'overlays', 'skills', `${change.id}.json`);
+  const absoluteTarget = resolveMaybe(root, targetPath);
+  const previousExists = existsSync(absoluteTarget);
+  const previousHash = previousExists ? `sha256:${sha256(readFileSync(absoluteTarget, 'utf8'))}` : null;
+  return {
+    id: change.id,
+    action: change.action,
+    targetPath: relative(root, absoluteTarget),
+    absoluteTarget,
+    previousExists,
+    previousHash,
+    nextHash: `sha256:${sha256(JSON.stringify(change.overlay, null, 2) + '\n')}`,
+    overlay: change.overlay
+  };
+}
+
+function createBackupManifest({ proposal, proposalPath, planned, root }) {
+  const id = new Date().toISOString().replace(/[-:.TZ]/g, '');
+  const backupRoot = join(root, BACKUPS_DIR, id);
+  const files = [];
+  for (const item of planned) {
+    const backupFile = item.previousExists ? join('files', item.targetPath.replace(/[^a-zA-Z0-9._-]/g, '__')) : null;
+    if (item.previousExists) {
+      mkdirSync(join(backupRoot, dirname(backupFile)), { recursive: true });
+      copyFileSync(item.absoluteTarget, join(backupRoot, backupFile));
+    }
+    files.push({
+      id: item.id,
+      targetPath: item.targetPath,
+      existedBefore: item.previousExists,
+      backupFile,
+      previousHash: item.previousHash,
+      nextHash: item.nextHash
+    });
+  }
+  return {
+    apiVersion: 'sloom.dev/v1alpha1',
+    kind: 'SkillOverlayBackup',
+    id,
+    createdAt: new Date().toISOString(),
+    proposalPath: proposalPath ? relative(root, resolveMaybe(root, proposalPath)) : null,
+    proposalHash: `sha256:${sha256(JSON.stringify(proposal, null, 2) + '\n')}`,
+    files
+  };
+}
+
+function writeBackupManifest(manifest, root) {
+  writeJson(join(root, BACKUPS_DIR, manifest.id, 'manifest.json'), manifest);
+}
+
+function isInsideLocalOverlayDir(file, root) {
+  const overlayRoot = normalizePathKey(resolve(root, SLOOM_DIR, 'overlays', 'skills'));
+  const target = normalizePathKey(resolve(file));
+  return target === overlayRoot || target.startsWith(`${overlayRoot}/`);
+}
+
 function createOverlaySkeleton(entry) {
   const id = entry.metadata.inferredId;
   return {
@@ -118,8 +257,11 @@ function createOverlaySkeleton(entry) {
       source: {
         type: 'local-skill',
         path: entry.metadata.sourcePath,
+        origin: entry.metadata.origin,
+        vault: inferVaultFromPath(entry.metadata.sourcePath),
         fingerprint: entry.fingerprints?.skillMd
-      }
+      },
+      enabled: true
     },
     spec: {
       intents: inferIntentsFromText(`${entry.metadata.title} ${entry.summary ?? ''}`),
@@ -166,10 +308,22 @@ export function lintCatalog(catalog) {
     if (!skill.version) warnings.push(`${skill.id}: missing metadata.version`);
     if (!skill.skillPath) errors.push(`${skill.id}: missing metadata.skillPath`);
     if (!skill.summary || skill.summary.length < 8) warnings.push(`${skill.id}: SKILL.md summary is too short`);
+    if (!Array.isArray(skill.outputs) || skill.outputs.length === 0) warnings.push(`${skill.id}: missing spec.outputs`);
+    const permissions = skill.policy?.permissions ?? [];
+    for (const permission of permissions) {
+      if (['shell.unrestricted', 'network.unrestricted', 'filesystem.write.all'].includes(permission)) warnings.push(`${skill.id}: dangerous permission '${permission}'`);
+    }
+    for (const command of skill.policy?.denyCommands ?? []) {
+      if (String(command).includes('rm -rf /')) warnings.push(`${skill.id}: denyCommands contains broad destructive command pattern`);
+    }
     for (const out of skill.outputs ?? []) {
       if (!outputProducers.has(out)) outputProducers.set(out, []);
       outputProducers.get(out).push(skill.id);
     }
+  }
+
+  for (const [artifact, producers] of outputProducers.entries()) {
+    if (producers.length > 1) warnings.push(`artifact '${artifact}' has multiple producers: ${producers.join(', ')}`);
   }
 
   for (const skill of catalog.skills ?? []) {
@@ -401,6 +555,17 @@ export function writeJson(file, value) {
   writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
 }
 
+function inferVaultFromPath(path) {
+  const normalized = normalizePathKey(path);
+  const parts = normalized.split('/').filter(Boolean);
+  if (parts[0] === 'examples') return 'examples';
+  if (parts[0] === 'packs') return parts[1] ?? 'packs';
+  if (normalized.includes('/.codex/skills/')) return 'codex';
+  if (normalized.includes('/.agents/skills/')) return 'agents';
+  if (normalized.includes('/.claude/skills/')) return 'claude';
+  return parts[0] ?? 'local';
+}
+
 function inferIntentsFromText(text) {
   const lower = String(text).toLowerCase();
   const intents = new Set();
@@ -451,12 +616,15 @@ function readInventoryEntry(skillDir, root, overlays = { bySourcePath: new Map()
       sourcePath: relativePath,
       absolutePath: skillDir,
       origin: overlay.metadata?.id ? 'local-skill-with-overlay' : (portableMetadata.kind ? 'local-skill-with-portable-metadata' : 'local-skill'),
+      vault: inferVaultFromPath(relativePath),
+      enabled: overlay.metadata?.enabled ?? true,
       discoveredAt: new Date().toISOString()
     },
     summary: summarizeMarkdown(content),
     fingerprints: {
       skillMd: `sha256:${skillMdHash}`,
-      portableMetadata: portableMetadata.hash ? `sha256:${portableMetadata.hash}` : null
+      portableMetadata: portableMetadata.hash ? `sha256:${portableMetadata.hash}` : null,
+      overlay: overlay.__sloomFingerprint ? `sha256:${overlay.__sloomFingerprint}` : null
     },
     portableMetadata: portableMetadata.kind ? {
       kind: portableMetadata.kind,
@@ -503,6 +671,7 @@ function readSkill(skillDir, root, overlays = { bySourcePath: new Map(), byId: n
     overlays.bySourcePath.get(normalizePathKey(relative(root, skillDir)))
   );
   const descriptor = mergeDeep(mergeDeep({ metadata: {}, spec: {} }, sidecar), overlay);
+  delete descriptor.__sloomFingerprint;
   const metadata = descriptor.metadata ?? {};
   const spec = descriptor.spec ?? {};
   const id = metadata.id ?? sidecarId ?? inferredId;
@@ -516,6 +685,9 @@ function readSkill(skillDir, root, overlays = { bySourcePath: new Map(), byId: n
     summary: summarizeMarkdown(content),
     hash: sha256(content + JSON.stringify(descriptor)),
     source: metadata.source ?? { type: 'local-skill', path: relative(root, skillDir) },
+    vault: metadata.source?.vault ?? inferVaultFromPath(metadata.source?.path ?? relative(root, skillDir)),
+    origin: metadata.source?.origin ?? (Object.keys(overlay).length ? 'local-skill-with-overlay' : 'local-skill'),
+    enabled: metadata.enabled ?? true,
     intents: spec.intents ?? [],
     capabilities: spec.capabilities ?? [],
     inputs: spec.inputs ?? { required: [], optional: [] },
@@ -534,7 +706,10 @@ function readSkillOverlays(root) {
   for (const dir of [join(root, 'packs'), join(root, SLOOM_DIR, 'overlays', 'skills')]) {
     for (const file of findMetadataFiles(dir)) {
       const value = readMetadataFile(file);
-      if (value) overlays.push(value);
+      if (value) {
+        value.__sloomFingerprint = sha256(readFileSync(file, 'utf8'));
+        overlays.push(value);
+      }
     }
   }
 

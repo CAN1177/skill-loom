@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, cpSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPlan, indexSkills, lintCatalog, proposeOverlays, readBlueprint, routeTask, scanSkills, validatePlan, writeInventory } from '../src/index.js';
+import { applyOverlayProposal, createPlan, indexSkills, lintCatalog, proposeOverlays, readBlueprint, rollbackBackup, routeTask, scanSkills, validatePlan, writeInventory } from '../src/index.js';
 
 
 test('scans skills into non-invasive inventory', () => {
@@ -20,6 +20,29 @@ test('scans skills into non-invasive inventory', () => {
   assert.equal(proposal.kind, 'SkillOverlayProposal');
   assert.equal(proposal.changes.length, 6);
   assert.ok(proposal.changes.every(change => change.action === 'upsert-overlay'));
+});
+
+
+test('applies overlay proposals safely and rollbacks created files', () => {
+  const root = mkdtempSync(join(tmpdir(), 'sloom-test-'));
+  cpSync(join(process.cwd(), 'examples'), join(root, 'examples'), { recursive: true });
+  const inventory = scanSkills(['examples/skills'], root);
+  const proposal = proposeOverlays(inventory);
+  const dryRun = applyOverlayProposal(proposal, root, { dryRun: true, yes: false, backup: true, proposalPath: '.sloom/proposals/overlays.json' });
+  assert.equal(dryRun.applied, false);
+  assert.equal(dryRun.writes.length, 6);
+  assert.equal(existsSync(join(root, '.sloom', 'overlays', 'skills', `${proposal.changes[0].id}.json`)), false);
+
+  const result = applyOverlayProposal(proposal, root, { yes: true, backup: true, proposalPath: '.sloom/proposals/overlays.json' });
+  assert.equal(result.applied, true);
+  assert.ok(result.backupId);
+  assert.equal(result.writes.length, 6);
+  assert.equal(existsSync(join(root, result.writes[0].targetPath)), true);
+
+  const rollback = rollbackBackup(result.backupId, root);
+  assert.equal(rollback.rolledBack, true);
+  assert.equal(rollback.actions.length, 6);
+  assert.equal(existsSync(join(root, result.writes[0].targetPath)), false);
 });
 
 test('indexes example skills and lints catalog', () => {

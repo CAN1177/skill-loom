@@ -783,7 +783,7 @@ Logs: .sloom/runs/issue-482/logs/implementation.frontend.log
 |---|---:|---|
 | scan | 是 | 只读发现 |
 | propose | 是 | 只生成建议 |
-| apply skill changes | 需要确认 | 会改 Skill 目录或配置 |
+| apply overlay changes | 需要确认 | 仅写 `.sloom/overlays` 或 Pack 草稿，不修改原始 Skill 目录 |
 | route | 是 | 只读分析 |
 | plan | 是 | 只生成计划 |
 | run low-risk shell tests | 是 | 只读或低风险 |
@@ -917,12 +917,12 @@ npm run check
 任务：
 
 - [x] 增加 `sloom scan`：扫描多个 Skill roots，生成 inventory。
-- [x] 增加 fingerprint：对 `SKILL.md`、overlay、关键资源计算 checksum（已覆盖 `SKILL.md` 与 portable metadata；overlay 指纹继续增强）。
-- [ ] 增加 source/vault/origin/enabled metadata。
+- [x] 增加 fingerprint：对 `SKILL.md`、overlay、关键资源计算 checksum（已覆盖 `SKILL.md`、portable metadata 与 overlay）。
+- [x] 增加 source/vault/origin/enabled metadata。
 - [x] 增加 `sloom propose` 起步版：根据 inventory 生成非侵入式 metadata overlay proposal；Pack 智能分组继续增强。
 - [x] 增加 reviewable proposal：所有 overlay 变更先落盘，不直接写入原始 Skill 目录。
-- [ ] 增加 `sloom apply --backup` 与 rollback。
-- [ ] Catalog lint 支持更多规则：缺输出、循环依赖、重复 producer、危险权限。
+- [x] 增加 `sloom apply --backup` 与 rollback：仅写入 `.sloom/overlays/skills`，不触碰原始 Skill 目录。
+- [x] Catalog lint 支持更多规则：缺输出、重复 producer、危险权限；Plan validate 已覆盖循环依赖。
 
 交付物：
 
