@@ -1,9 +1,26 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, cpSync } from 'node:fs';
+import { existsSync, mkdtempSync, cpSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPlan, indexSkills, lintCatalog, readBlueprint, routeTask, validatePlan } from '../src/index.js';
+import { createPlan, indexSkills, lintCatalog, proposeOverlays, readBlueprint, routeTask, scanSkills, validatePlan, writeInventory } from '../src/index.js';
+
+
+test('scans skills into non-invasive inventory', () => {
+  const root = mkdtempSync(join(tmpdir(), 'sloom-test-'));
+  cpSync(join(process.cwd(), 'examples'), join(root, 'examples'), { recursive: true });
+  const inventory = scanSkills(['examples/skills'], root);
+  assert.equal(inventory.kind, 'SkillInventory');
+  assert.equal(inventory.entries.length, 6);
+  assert.ok(inventory.entries.every(entry => entry.fingerprints.skillMd.startsWith('sha256:')));
+  assert.ok(inventory.entries.every(entry => entry.suggestedOverlayPath.startsWith('.sloom/overlays/skills/')));
+  writeInventory(inventory, root);
+  assert.equal(existsSync(join(root, '.sloom', 'inventory.json')), true);
+  const proposal = proposeOverlays(inventory);
+  assert.equal(proposal.kind, 'SkillOverlayProposal');
+  assert.equal(proposal.changes.length, 6);
+  assert.ok(proposal.changes.every(change => change.action === 'upsert-overlay'));
+});
 
 test('indexes example skills and lints catalog', () => {
   const root = mkdtempSync(join(tmpdir(), 'sloom-test-'));
@@ -11,6 +28,8 @@ test('indexes example skills and lints catalog', () => {
   cpSync(join(process.cwd(), 'packs'), join(root, 'packs'), { recursive: true });
   const catalog = indexSkills(['examples/skills'], root);
   assert.equal(catalog.skills.length, 6);
+  assert.ok(catalog.skills.some(skill => skill.id === 'implementation.targeted-fix'));
+  assert.ok(catalog.skills.every(skill => skill.source?.path?.startsWith('examples/skills/')));
   const lint = lintCatalog(catalog);
   assert.equal(lint.ok, true);
 });

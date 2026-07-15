@@ -4,6 +4,7 @@ import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 
 export const SLOOM_DIR = '.sloom';
 export const CATALOG_FILE = join(SLOOM_DIR, 'catalog.json');
+export const INVENTORY_FILE = join(SLOOM_DIR, 'inventory.json');
 
 export function ensureSloom(root = process.cwd()) {
   const dir = join(root, SLOOM_DIR);
@@ -11,6 +12,7 @@ export function ensureSloom(root = process.cwd()) {
   mkdirSync(join(dir, 'plans'), { recursive: true });
   mkdirSync(join(dir, 'runs'), { recursive: true });
   mkdirSync(join(dir, 'overlays', 'skills'), { recursive: true });
+  mkdirSync(join(dir, 'proposals'), { recursive: true });
   if (!existsSync(join(root, 'sloom.config.json'))) {
     writeJson(join(root, 'sloom.config.json'), {
       $schema: './schemas/sloom.config.schema.json',
@@ -18,7 +20,8 @@ export function ensureSloom(root = process.cwd()) {
       skillPaths: ['./examples/skills'],
       defaultPack: 'frontend-delivery',
       defaultBlueprint: 'bugfix',
-      catalog: CATALOG_FILE
+      catalog: CATALOG_FILE,
+      inventory: INVENTORY_FILE
     });
   }
   if (!existsSync(join(root, CATALOG_FILE))) {
@@ -29,7 +32,7 @@ export function ensureSloom(root = process.cwd()) {
 
 export function readConfig(root = process.cwd()) {
   const file = join(root, 'sloom.config.json');
-  if (!existsSync(file)) return { skillPaths: ['./examples/skills'], defaultPack: 'frontend-delivery', defaultBlueprint: 'bugfix', catalog: CATALOG_FILE };
+  if (!existsSync(file)) return { skillPaths: ['./examples/skills'], defaultPack: 'frontend-delivery', defaultBlueprint: 'bugfix', catalog: CATALOG_FILE, inventory: INVENTORY_FILE };
   return readJson(file);
 }
 
@@ -44,6 +47,92 @@ export function writeCatalog(catalog, root = process.cwd()) {
   catalog.generatedAt = new Date().toISOString();
   writeJson(join(root, CATALOG_FILE), catalog);
 }
+
+export function scanSkills(paths, root = process.cwd()) {
+  const config = readConfig(root);
+  const requestedPaths = paths.length ? paths : config.skillPaths ?? ['./examples/skills'];
+  const entries = [];
+  const seen = new Set();
+  const overlays = readSkillOverlays(root);
+
+  for (const input of requestedPaths) {
+    const absolute = expandHome(resolveMaybe(root, input));
+    if (!existsSync(absolute)) continue;
+    for (const skillDir of findSkillDirs(absolute)) {
+      const key = normalizePathKey(skillDir);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      entries.push(readInventoryEntry(skillDir, root, overlays));
+    }
+  }
+
+  entries.sort((a, b) => a.metadata.inferredId.localeCompare(b.metadata.inferredId));
+  return {
+    apiVersion: 'sloom.dev/v1alpha1',
+    kind: 'SkillInventory',
+    generatedAt: new Date().toISOString(),
+    roots: requestedPaths,
+    entries
+  };
+}
+
+export function writeInventory(inventory, root = process.cwd(), file = INVENTORY_FILE) {
+  ensureSloom(root);
+  writeJson(resolveMaybe(root, file), inventory);
+}
+
+export function proposeOverlays(inventory, options = {}) {
+  const { includeExisting = false } = options;
+  const changes = [];
+  for (const entry of inventory.entries ?? []) {
+    const hasOverlay = entry.metadata?.origin === 'local-skill-with-overlay';
+    if (hasOverlay && !includeExisting) continue;
+    const id = entry.metadata.inferredId;
+    const targetPath = entry.suggestedOverlayPath ?? join(SLOOM_DIR, 'overlays', 'skills', `${id}.json`);
+    changes.push({
+      action: hasOverlay ? 'review-existing-overlay' : 'upsert-overlay',
+      id,
+      targetPath,
+      reason: hasOverlay ? 'Skill already has overlay metadata; include for review.' : 'Skill has no sLoom overlay; propose a non-invasive metadata skeleton.',
+      overlay: createOverlaySkeleton(entry)
+    });
+  }
+  return {
+    apiVersion: 'sloom.dev/v1alpha1',
+    kind: 'SkillOverlayProposal',
+    generatedAt: new Date().toISOString(),
+    inventoryGeneratedAt: inventory.generatedAt ?? null,
+    changes
+  };
+}
+
+function createOverlaySkeleton(entry) {
+  const id = entry.metadata.inferredId;
+  return {
+    apiVersion: 'sloom.dev/v1alpha1',
+    kind: 'SkillOverlay',
+    metadata: {
+      id,
+      version: '0.1.0-local',
+      title: entry.metadata.title,
+      source: {
+        type: 'local-skill',
+        path: entry.metadata.sourcePath,
+        fingerprint: entry.fingerprints?.skillMd
+      }
+    },
+    spec: {
+      intents: inferIntentsFromText(`${entry.metadata.title} ${entry.summary ?? ''}`),
+      capabilities: inferCapabilitiesFromText(`${entry.metadata.title} ${entry.summary ?? ''}`),
+      inputs: { required: ['task.description'], optional: [] },
+      outputs: [],
+      execution: { preferredExecutor: 'manual', workspace: 'current', timeoutMinutes: 20, parallelSafe: true },
+      policy: { risk: 'low', permissions: ['filesystem.read'], denyCommands: ['rm -rf', 'git push'] },
+      routing: { includeKeywords: inferKeywords(entry), tags: [] }
+    }
+  };
+}
+
 
 export function indexSkills(paths, root = process.cwd()) {
   ensureSloom(root);
@@ -310,6 +399,94 @@ export function readJson(file) {
 export function writeJson(file, value) {
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function inferIntentsFromText(text) {
+  const lower = String(text).toLowerCase();
+  const intents = new Set();
+  if (/bug|fix|修复|缺陷|报错/.test(lower)) intents.add('bugfix');
+  if (/feature|需求|新增|实现|开发/.test(lower)) intents.add('feature');
+  if (/refactor|重构/.test(lower)) intents.add('refactor');
+  return [...intents];
+}
+
+function inferCapabilitiesFromText(text) {
+  const lower = String(text).toLowerCase();
+  const pairs = [
+    ['review', /review|审核|检查/],
+    ['testing', /test|测试|验证|regression/],
+    ['implementation', /implementation|实现|开发|fix/],
+    ['requirements', /requirement|需求|验收/],
+    ['architecture', /architecture|架构|设计/],
+    ['repo-analysis', /repo|repository|仓库|代码库|inspect/]
+  ];
+  return pairs.filter(([, pattern]) => pattern.test(lower)).map(([capability]) => capability);
+}
+
+function inferKeywords(entry) {
+  return [...new Set(String(entry.metadata.title ?? '').split(/\s+/).filter(Boolean).slice(0, 6))];
+}
+
+
+function readInventoryEntry(skillDir, root, overlays = { bySourcePath: new Map(), byId: new Map() }) {
+  const skillMd = join(skillDir, 'SKILL.md');
+  const content = readFileSync(skillMd, 'utf8');
+  const title = (content.match(/^#\s+(.+)$/m)?.[1] ?? basename(skillDir)).trim();
+  const portableMetadata = readPortableMetadataSummary(skillDir);
+  const titleSlug = slugify(title || basename(skillDir));
+  const relativePath = relative(root, skillDir);
+  const overlay = mergeOverlays(
+    overlays.bySourcePath.get(normalizePathKey(skillDir)),
+    overlays.bySourcePath.get(normalizePathKey(relativePath)),
+    overlays.byId.get(portableMetadata.id),
+    overlays.byId.get(titleSlug)
+  );
+  const inferredId = overlay.metadata?.id ?? portableMetadata.id ?? titleSlug;
+  const canonicalTitle = overlay.metadata?.title ?? portableMetadata.title ?? title;
+  const skillMdHash = sha256(content);
+  return {
+    metadata: {
+      inferredId,
+      title: canonicalTitle,
+      sourcePath: relativePath,
+      absolutePath: skillDir,
+      origin: overlay.metadata?.id ? 'local-skill-with-overlay' : (portableMetadata.kind ? 'local-skill-with-portable-metadata' : 'local-skill'),
+      discoveredAt: new Date().toISOString()
+    },
+    summary: summarizeMarkdown(content),
+    fingerprints: {
+      skillMd: `sha256:${skillMdHash}`,
+      portableMetadata: portableMetadata.hash ? `sha256:${portableMetadata.hash}` : null
+    },
+    portableMetadata: portableMetadata.kind ? {
+      kind: portableMetadata.kind,
+      id: portableMetadata.id,
+      title: portableMetadata.title,
+      file: portableMetadata.file
+    } : null,
+    suggestedOverlayPath: join(SLOOM_DIR, 'overlays', 'skills', `${inferredId}.json`)
+  };
+}
+
+function readPortableMetadataSummary(skillDir) {
+  for (const name of ['sloom.json', 'sloom.yaml', 'sloom.yml']) {
+    const file = join(skillDir, name);
+    if (!existsSync(file)) continue;
+    const text = readFileSync(file, 'utf8');
+    try {
+      const value = extname(file) === '.json' ? JSON.parse(text) : parseSimpleYaml(text);
+      return {
+        kind: value.kind,
+        id: value.metadata?.id,
+        title: value.metadata?.title,
+        file,
+        hash: sha256(text)
+      };
+    } catch {
+      return { file, hash: sha256(text) };
+    }
+  }
+  return {};
 }
 
 function readSkill(skillDir, root, overlays = { bySourcePath: new Map(), byId: new Map() }) {

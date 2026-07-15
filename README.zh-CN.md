@@ -58,7 +58,13 @@ node packages/cli/bin/sloom.js --help
 # 初始化本地状态
 node packages/cli/bin/sloom.js init
 
-# 索引示例 Skills
+# 只读扫描示例 Skills，生成非侵入式 inventory
+node packages/cli/bin/sloom.js scan examples/skills
+
+# 生成缺失 overlay 的建议，不修改原始 Skill 目录
+node packages/cli/bin/sloom.js propose --from .sloom/inventory.json
+
+# 使用 Pack overlays 索引示例 Skills
 node packages/cli/bin/sloom.js index examples/skills
 
 # 查看 Catalog

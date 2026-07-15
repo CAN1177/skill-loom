@@ -916,11 +916,11 @@ npm run check
 
 任务：
 
-- [ ] 增加 `sloom scan`：扫描多个 Skill roots，生成 inventory。
-- [ ] 增加 fingerprint：对 `SKILL.md`、overlay、关键资源计算 checksum。
+- [x] 增加 `sloom scan`：扫描多个 Skill roots，生成 inventory。
+- [x] 增加 fingerprint：对 `SKILL.md`、overlay、关键资源计算 checksum（已覆盖 `SKILL.md` 与 portable metadata；overlay 指纹继续增强）。
 - [ ] 增加 source/vault/origin/enabled metadata。
-- [ ] 增加 `sloom propose`：根据目录、描述、触发词建议 Pack 和非侵入式 metadata overlay。
-- [ ] 增加 reviewable apply plan：所有变更先落盘，不直接写入。
+- [x] 增加 `sloom propose` 起步版：根据 inventory 生成非侵入式 metadata overlay proposal；Pack 智能分组继续增强。
+- [x] 增加 reviewable proposal：所有 overlay 变更先落盘，不直接写入原始 Skill 目录。
 - [ ] 增加 `sloom apply --backup` 与 rollback。
 - [ ] Catalog lint 支持更多规则：缺输出、循环依赖、重复 producer、危险权限。
 
@@ -1013,7 +1013,7 @@ npm run check
 ### Week 1：把 Skill 治理打牢
 
 1. 梳理现有 `schemas/sloom-skill.schema.json`，补齐 fingerprint/source/vault/origin 字段。
-2. 实现 `sloom scan`，默认只读扫描 `SKILL.md`，并把编排元数据写入 `.sloom/overlays` 或 Pack。
+2. 实现 `sloom scan`，默认只读扫描 `SKILL.md`，生成 `.sloom/inventory.json`；后续 `propose/apply` 再把编排元数据写入 `.sloom/overlays` 或 Pack。
 3. 生成 `.sloom/inventory.json`。
 4. 为 5-10 个真实团队 Skill 补非侵入式 overlay，不修改原始 Skill 目录。
 5. 实现 Catalog lint 新规则。

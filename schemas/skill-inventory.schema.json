@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sloom.dev/schemas/skill-inventory.schema.json",
+  "title": "sLoom Skill Inventory",
+  "type": "object",
+  "required": ["apiVersion", "kind", "generatedAt", "entries"],
+  "properties": {
+    "apiVersion": { "const": "sloom.dev/v1alpha1" },
+    "kind": { "const": "SkillInventory" },
+    "generatedAt": { "type": "string" },
+    "roots": { "type": "array", "items": { "type": "string" } },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["metadata", "fingerprints", "suggestedOverlayPath"],
+        "properties": {
+          "metadata": {
+            "type": "object",
+            "required": ["inferredId", "title", "sourcePath", "origin", "discoveredAt"],
+            "properties": {
+              "inferredId": { "type": "string" },
+              "title": { "type": "string" },
+              "sourcePath": { "type": "string" },
+              "absolutePath": { "type": "string" },
+              "origin": { "type": "string" },
+              "discoveredAt": { "type": "string" }
+            },
+            "additionalProperties": true
+          },
+          "summary": { "type": "string" },
+          "fingerprints": {
+            "type": "object",
+            "required": ["skillMd"],
+            "properties": {
+              "skillMd": { "type": "string", "pattern": "^sha256:" },
+              "portableMetadata": { "type": ["string", "null"] }
+            },
+            "additionalProperties": true
+          },
+          "portableMetadata": { "type": ["object", "null"] },
+          "suggestedOverlayPath": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

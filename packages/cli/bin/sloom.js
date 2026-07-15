@@ -7,13 +7,16 @@ import {
   indexSkills,
   lintCatalog,
   planToMermaid,
+  proposeOverlays,
   readBlueprint,
   readCatalog,
   readConfig,
   readJson,
   readPack,
   routeTask,
+  scanSkills,
   validatePlan,
+  writeInventory,
   writeJson
 } from '../../core/src/index.js';
 
@@ -25,6 +28,8 @@ try {
   if (!command || command === '--help' || command === '-h') help();
   else if (command === '--version' || command === '-v') console.log('0.1.0');
   else if (command === 'init') cmdInit(args.slice(1));
+  else if (command === 'scan') cmdScan(args.slice(1));
+  else if (command === 'propose') cmdPropose(args.slice(1));
   else if (command === 'index') cmdIndex(args.slice(1));
   else if (command === 'skills') cmdSkills(args.slice(1));
   else if (command === 'route') cmdRoute(args.slice(1));
@@ -42,6 +47,28 @@ function cmdInit(argv) {
   const config = readConfig(root);
   console.log(`Initialized ${dir}`);
   console.log(`Config: ${JSON.stringify(config, null, 2)}`);
+}
+
+function cmdScan(argv) {
+  const paths = positional(argv);
+  const inventory = scanSkills(paths, root);
+  const out = getOption(argv, '--out') ?? readConfig(root).inventory ?? '.sloom/inventory.json';
+  writeInventory(inventory, root, out);
+  console.log(`Scanned ${inventory.entries.length} skill(s) into ${out}`);
+  for (const entry of inventory.entries) {
+    const portable = entry.portableMetadata ? ' + portable metadata' : '';
+    console.log(`- ${entry.metadata.inferredId} (${entry.metadata.title}) ${entry.metadata.sourcePath}${portable}`);
+  }
+}
+
+function cmdPropose(argv) {
+  const inventoryFile = getOption(argv, '--from') ?? readConfig(root).inventory ?? '.sloom/inventory.json';
+  const out = getOption(argv, '--out') ?? '.sloom/proposals/overlays.json';
+  const inventory = existsSync(resolve(root, inventoryFile)) ? readJson(resolve(root, inventoryFile)) : scanSkills(positional(argv), root);
+  const proposal = proposeOverlays(inventory, { includeExisting: argv.includes('--include-existing') });
+  writeJson(resolve(root, out), proposal);
+  console.log(`Proposed ${proposal.changes.length} overlay change(s) into ${out}`);
+  for (const change of proposal.changes) console.log(`- ${change.action} ${change.id} -> ${change.targetPath}`);
 }
 
 function cmdIndex(argv) {
@@ -165,7 +192,7 @@ function ensureCatalog() {
 }
 
 function help() {
-  console.log(`sLoom — Skill-first Orchestrator CLI\n\nUsage:\n  sloom init\n  sloom index [skill-path ...]\n  sloom skills list|show <id>|lint [--strict]\n  sloom route "<task>" [--pack <id>] [--json]\n  sloom plan --task "<task>" [--blueprint bugfix|feature] [--out plan.json]\n  sloom validate <plan.json>\n  sloom graph <plan.json> [--out graph.mmd]\n  sloom run <plan.json> --dry-run\n`);
+  console.log(`sLoom — Skill-first Orchestrator CLI\n\nUsage:\n  sloom init\n  sloom scan [skill-path ...] [--out .sloom/inventory.json]\n  sloom propose [--from .sloom/inventory.json] [--out .sloom/proposals/overlays.json]\n  sloom index [skill-path ...]\n  sloom skills list|show <id>|lint [--strict]\n  sloom route "<task>" [--pack <id>] [--json]\n  sloom plan --task "<task>" [--blueprint bugfix|feature] [--out plan.json]\n  sloom validate <plan.json>\n  sloom graph <plan.json> [--out graph.mmd]\n  sloom run <plan.json> --dry-run\n`);
 }
 
 function getOption(argv, name) {

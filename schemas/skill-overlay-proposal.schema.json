@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sloom.dev/schemas/skill-overlay-proposal.schema.json",
+  "title": "sLoom Skill Overlay Proposal",
+  "type": "object",
+  "required": ["apiVersion", "kind", "generatedAt", "changes"],
+  "properties": {
+    "apiVersion": { "const": "sloom.dev/v1alpha1" },
+    "kind": { "const": "SkillOverlayProposal" },
+    "generatedAt": { "type": "string" },
+    "inventoryGeneratedAt": { "type": ["string", "null"] },
+    "changes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["action", "id", "targetPath", "overlay"],
+        "properties": {
+          "action": { "enum": ["upsert-overlay", "review-existing-overlay"] },
+          "id": { "type": "string" },
+          "targetPath": { "type": "string" },
+          "reason": { "type": "string" },
+          "overlay": { "type": "object" }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

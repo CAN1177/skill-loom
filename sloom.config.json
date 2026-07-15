@@ -6,5 +6,6 @@
   ],
   "defaultPack": "frontend-delivery",
   "defaultBlueprint": "bugfix",
-  "catalog": ".sloom/catalog.json"
+  "catalog": ".sloom/catalog.json",
+  "inventory": ".sloom/inventory.json"
 }

@@ -44,7 +44,13 @@ node packages/cli/bin/sloom.js --help
 # Initialize local state
 node packages/cli/bin/sloom.js init
 
-# Index example skills
+# Scan example skills into a non-invasive inventory
+node packages/cli/bin/sloom.js scan examples/skills
+
+# Propose missing overlays without mutating skill directories
+node packages/cli/bin/sloom.js propose --from .sloom/inventory.json
+
+# Index example skills with pack overlays
 node packages/cli/bin/sloom.js index examples/skills
 
 # Inspect catalog
@@ -72,7 +78,7 @@ packages/
   core/              catalog, routing, planning, validation, graph utilities
   cli/               command-line entry point
 blueprints/          workflow skeletons: bugfix, feature
-packs/               curated skill sets and routing policies
+packs/               curated skill sets, routing policies, and metadata overlays
 schemas/             JSON Schemas for metadata overlays and plans
 examples/            example skills and plans
 docs/                architecture notes and roadmap

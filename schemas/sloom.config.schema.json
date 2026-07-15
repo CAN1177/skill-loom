@@ -8,7 +8,8 @@
     "skillPaths": { "type": "array", "items": { "type": "string" } },
     "defaultPack": { "type": "string" },
     "defaultBlueprint": { "type": "string" },
-    "catalog": { "type": "string" }
+    "catalog": { "type": "string" },
+    "inventory": { "type": "string" }
   },
   "additionalProperties": true
 }
