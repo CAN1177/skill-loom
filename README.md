@@ -67,13 +67,41 @@ node packages/cli/bin/sloom.js route "修复资源列表搜索为空时报错" -
 # Generate a plan
 node packages/cli/bin/sloom.js plan --task "修复资源列表搜索为空时报错" --blueprint bugfix --out .sloom/plans/search-empty-bug.json
 
-# Validate, graph, and dry-run
+# Validate, graph, dry-run, and execute with artifact runtime
 node packages/cli/bin/sloom.js validate .sloom/plans/search-empty-bug.json
 node packages/cli/bin/sloom.js graph .sloom/plans/search-empty-bug.json
 node packages/cli/bin/sloom.js run .sloom/plans/search-empty-bug.json --dry-run
+node packages/cli/bin/sloom.js run .sloom/plans/search-empty-bug.json
+node packages/cli/bin/sloom.js runs
+# node packages/cli/bin/sloom.js resume <run-id>
 ```
 
 If installed as a package, the binary name is `sloom`.
+
+## Workflow execution and artifacts
+
+`sloom run` now creates a durable run directory under `.sloom/runs/<run-id>`:
+
+```text
+.sloom/runs/<run-id>/
+  plan.lock.json
+  run-state.json
+  events.jsonl
+  artifacts/
+    manifest.json
+    <node-id>/<artifact-name>.md
+```
+
+The default local runtime is deterministic and safe: it does not mutate source files. It materializes each node output as a traceable artifact so the workflow can be inspected, resumed, and later replaced by real agent executors.
+
+Useful commands:
+
+```bash
+node packages/cli/bin/sloom.js run .sloom/plans/search-empty-bug.json --max-nodes 2
+node packages/cli/bin/sloom.js resume <run-id>
+node packages/cli/bin/sloom.js runs --json
+```
+
 
 ## Repository layout
 

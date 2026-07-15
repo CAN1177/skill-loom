@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sloom.dev/schemas/artifact-manifest.schema.json",
+  "title": "sLoom Artifact Manifest",
+  "type": "object",
+  "required": ["apiVersion", "kind", "generatedAt", "artifacts"],
+  "properties": {
+    "apiVersion": { "const": "sloom.dev/v1alpha1" },
+    "kind": { "const": "ArtifactManifest" },
+    "generatedAt": { "type": "string" },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "path", "checksum", "executor", "attempt", "createdAt", "inputs"],
+        "properties": {
+          "name": { "type": "string" },
+          "path": { "type": "string" },
+          "checksum": { "type": "string", "pattern": "^sha256:" },
+          "node": { "type": ["string", "null"] },
+          "skill": { "type": ["string", "null"] },
+          "executor": { "type": "string" },
+          "attempt": { "type": "integer", "minimum": 0 },
+          "createdAt": { "type": "string" },
+          "inputs": { "type": "array" },
+          "metadata": { "type": "object" }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

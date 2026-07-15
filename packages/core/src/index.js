@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 
 export const SLOOM_DIR = '.sloom';
@@ -489,6 +489,313 @@ export function createPlan({ task, catalog, blueprint = null, route = null, id =
       gates: defaultGates(intent, risk, ordered)
     }
   };
+}
+
+
+export function runWorkflowPlan(plan, catalog, root = process.cwd(), options = {}) {
+  ensureSloom(root);
+  const validation = validatePlan(plan, catalog);
+  if (!validation.ok) throw new Error(`Invalid workflow plan: ${validation.errors.join('; ')}`);
+
+  const dryRun = options.dryRun ?? false;
+  const now = new Date().toISOString();
+  const runId = options.runId ?? makeRunId(plan);
+  const runDir = join(root, SLOOM_DIR, 'runs', runId);
+  mkdirSync(join(runDir, 'artifacts'), { recursive: true });
+  mkdirSync(join(runDir, 'logs'), { recursive: true });
+
+  const state = createInitialRunState(plan, runId, now, dryRun);
+  const manifest = createInitialArtifactManifest(plan, runDir, root, now);
+  writeJson(join(runDir, 'plan.lock.json'), plan);
+  writeRunState(runDir, state);
+  writeArtifactManifest(runDir, manifest);
+  appendRunEvent(runDir, { type: dryRun ? 'run.dry_started' : 'run.started', runId, planId: plan.metadata?.id });
+
+  const result = executeRunState({ state, manifest, plan, catalog, root, runDir, dryRun, maxNodes: numberOption(options.maxNodes) });
+  return summarizeRunResult(result.state, root, runDir);
+}
+
+export function resumeWorkflowRun(runId, catalog, root = process.cwd(), options = {}) {
+  if (!runId) throw new Error('runId is required');
+  const runDir = join(root, SLOOM_DIR, 'runs', runId);
+  const stateFile = join(runDir, 'run-state.json');
+  const planFile = join(runDir, 'plan.lock.json');
+  if (!existsSync(stateFile)) throw new Error(`Run state not found: ${join(SLOOM_DIR, 'runs', runId, 'run-state.json')}`);
+  if (!existsSync(planFile)) throw new Error(`Plan lock not found: ${join(SLOOM_DIR, 'runs', runId, 'plan.lock.json')}`);
+  const state = readJson(stateFile);
+  const plan = readJson(planFile);
+  const manifest = existsSync(join(runDir, 'artifacts', 'manifest.json')) ? readJson(join(runDir, 'artifacts', 'manifest.json')) : createInitialArtifactManifest(plan, runDir, root, new Date().toISOString());
+
+  for (const node of state.nodes ?? []) {
+    if (['running', 'failed', 'blocked', 'paused'].includes(node.status)) node.status = 'pending';
+  }
+  state.status = 'running';
+  state.resumedAt = new Date().toISOString();
+  appendRunEvent(runDir, { type: 'run.resumed', runId });
+  const result = executeRunState({ state, manifest, plan, catalog, root, runDir, dryRun: false, maxNodes: numberOption(options.maxNodes) });
+  return summarizeRunResult(result.state, root, runDir);
+}
+
+export function readRunState(runId, root = process.cwd()) {
+  return readJson(join(root, SLOOM_DIR, 'runs', runId, 'run-state.json'));
+}
+
+export function listRuns(root = process.cwd()) {
+  const runsDir = join(root, SLOOM_DIR, 'runs');
+  if (!existsSync(runsDir)) return [];
+  return readdirSync(runsDir, { withFileTypes: true })
+    .filter(entry => entry.isDirectory())
+    .map(entry => {
+      const id = entry.name;
+      const stateFile = join(runsDir, id, 'run-state.json');
+      if (!existsSync(stateFile)) return { id, status: 'unknown', planId: null, updatedAt: null };
+      const state = readJson(stateFile);
+      return { id, status: state.status, planId: state.plan?.id ?? null, updatedAt: state.updatedAt ?? state.createdAt, nodes: state.nodes?.length ?? 0 };
+    })
+    .sort((a, b) => String(b.updatedAt ?? b.id).localeCompare(String(a.updatedAt ?? a.id)));
+}
+
+function executeRunState({ state, manifest, plan, catalog, root, runDir, dryRun, maxNodes = Infinity }) {
+  const ordered = topologicalSort(plan.spec?.nodes ?? []);
+  const stateById = new Map((state.nodes ?? []).map(node => [node.id, node]));
+  const skillById = new Map((catalog.skills ?? []).map(skill => [skill.id, skill]));
+  let executed = 0;
+  let paused = false;
+  state.status = dryRun ? 'dry-run' : 'running';
+  state.startedAt ??= new Date().toISOString();
+
+  for (const node of ordered) {
+    const nodeState = stateById.get(node.id);
+    if (!nodeState) continue;
+    if (nodeState.status === 'succeeded') continue;
+    if (executed >= maxNodes) {
+      paused = true;
+      break;
+    }
+    const dependencyStates = (node.dependsOn ?? []).map(id => stateById.get(id));
+    const unmet = dependencyStates.filter(dep => dep?.status !== 'succeeded' && dep?.status !== 'dry-run');
+    if (unmet.length) {
+      nodeState.status = 'blocked';
+      nodeState.blockedBy = unmet.map(dep => dep.id);
+      appendRunEvent(runDir, { type: 'node.blocked', node: node.id, blockedBy: nodeState.blockedBy });
+      continue;
+    }
+
+    nodeState.attempts += 1;
+    nodeState.startedAt = new Date().toISOString();
+    nodeState.status = dryRun ? 'dry-run' : 'running';
+    appendRunEvent(runDir, { type: dryRun ? 'node.dry_run' : 'node.started', node: node.id, skill: node.skill, executor: node.executor });
+
+    if (dryRun) {
+      nodeState.finishedAt = new Date().toISOString();
+      nodeState.status = 'dry-run';
+      appendRunEvent(runDir, { type: 'node.dry_finished', node: node.id });
+    } else {
+      const skill = skillById.get(node.skill) ?? { id: node.skill, title: node.skill };
+      const outputs = executeDeterministicNode({ node, skill, plan, manifest, root, runDir });
+      nodeState.artifacts = outputs.map(record => record.path);
+      nodeState.finishedAt = new Date().toISOString();
+      nodeState.status = 'succeeded';
+      appendRunEvent(runDir, { type: 'node.succeeded', node: node.id, artifacts: nodeState.artifacts });
+    }
+    executed += 1;
+    state.updatedAt = new Date().toISOString();
+    writeRunState(runDir, state);
+    writeArtifactManifest(runDir, manifest);
+  }
+
+  if (paused) {
+    state.status = 'paused';
+    appendRunEvent(runDir, { type: 'run.paused', runId: state.id, maxNodes });
+  } else if (dryRun) {
+    state.status = 'dry-run';
+    appendRunEvent(runDir, { type: 'run.dry_finished', runId: state.id });
+  } else if ((state.nodes ?? []).some(node => ['failed', 'blocked'].includes(node.status))) {
+    state.status = 'failed';
+    appendRunEvent(runDir, { type: 'run.failed', runId: state.id });
+  } else {
+    state.gates = evaluateGates(plan, manifest);
+    state.status = state.gates.every(gate => gate.status === 'passed' || gate.status === 'skipped') ? 'succeeded' : 'failed';
+    appendRunEvent(runDir, { type: state.status === 'succeeded' ? 'run.succeeded' : 'run.failed', runId: state.id, gates: state.gates });
+  }
+  state.updatedAt = new Date().toISOString();
+  state.finishedAt = ['succeeded', 'failed', 'dry-run'].includes(state.status) ? state.updatedAt : null;
+  writeRunState(runDir, state);
+  writeArtifactManifest(runDir, manifest);
+  return { state, manifest };
+}
+
+function executeDeterministicNode({ node, skill, plan, manifest, root, runDir }) {
+  const inputArtifacts = resolveInputArtifacts(node.inputs ?? [], manifest);
+  const outputs = [];
+  for (const outputName of node.outputs ?? []) {
+    const artifact = renderArtifact({ outputName, node, skill, plan, inputArtifacts });
+    const file = join(runDir, 'artifacts', safePathSegment(node.id), `${safePathSegment(outputName)}.md`);
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, artifact.content);
+    const record = {
+      name: outputName,
+      path: relative(root, file),
+      checksum: `sha256:${sha256(artifact.content)}`,
+      node: node.id,
+      skill: node.skill,
+      executor: node.executor,
+      attempt: 1,
+      createdAt: new Date().toISOString(),
+      inputs: inputArtifacts.map(item => ({ name: item.name, path: item.path, checksum: item.checksum })),
+      metadata: artifact.metadata
+    };
+    manifest.artifacts.push(record);
+    outputs.push(record);
+  }
+  manifest.generatedAt = new Date().toISOString();
+  return outputs;
+}
+
+function renderArtifact({ outputName, node, skill, plan, inputArtifacts }) {
+  const status = outputName === 'review-result' ? 'approved' : outputName === 'test-report' ? 'passed' : 'generated';
+  const title = artifactTitle(outputName);
+  const lines = [
+    `# ${title}`,
+    '',
+    `- Artifact: \`${outputName}\``,
+    `- Node: \`${node.id}\``,
+    `- Skill: \`${node.skill}\` (${skill.title ?? skill.id ?? node.skill})`,
+    `- Executor: \`${node.executor ?? 'manual'}\``,
+    `- Status: ${status}`,
+    `- Generated at: ${new Date().toISOString()}`,
+    '',
+    '## Task',
+    '',
+    plan.spec?.task?.description ?? '',
+    '',
+    '## Inputs',
+    '',
+    ...(inputArtifacts.length ? inputArtifacts.map(item => `- ${item.name}: ${item.path}`) : ['- None']),
+    '',
+    '## Draft',
+    '',
+    deterministicDraftFor(outputName, node, skill),
+    ''
+  ];
+  return { content: lines.join('\n'), metadata: { status, title } };
+}
+
+function deterministicDraftFor(outputName, node, skill) {
+  if (outputName === 'repo.context') return 'Repository context should summarize structure, changed surfaces, test entry points, and risk boundaries. This local executor records a deterministic draft artifact; agent executors can replace it with deeper analysis.';
+  if (outputName === 'requirement.spec') return 'Requirement spec should capture user goal, acceptance criteria, non-goals, edge cases, and expected artifacts before implementation starts.';
+  if (outputName === 'architecture.decision') return 'Architecture decision should document the chosen approach, alternatives considered, affected files/modules, rollout notes, and rollback strategy.';
+  if (outputName === 'api.contract') return 'API contract should describe user-facing CLI/API behavior, flags, inputs, outputs, and compatibility expectations.';
+  if (outputName === 'source.diff') return 'Source diff artifact is reserved for implementation output. The deterministic local executor does not mutate source files; use an agent or shell executor for real code changes.';
+  if (outputName === 'implementation.summary') return 'Implementation summary should list changed files, rationale, behavior changes, and follow-up tasks.';
+  if (outputName === 'test-report') return 'Regression test report should include commands run, pass/fail status, coverage notes, and any skipped checks.';
+  if (outputName === 'review-result') return 'Review result is approved for this deterministic artifact-runtime smoke run. Real agent review should replace this with findings and sign-off.';
+  return `Artifact generated by ${skill.title ?? node.skill}.`;
+}
+
+function createInitialRunState(plan, runId, now, dryRun) {
+  return {
+    apiVersion: 'sloom.dev/v1alpha1',
+    kind: 'WorkflowRun',
+    id: runId,
+    status: dryRun ? 'dry-run' : 'created',
+    createdAt: now,
+    updatedAt: now,
+    plan: { id: plan.metadata?.id ?? null, blueprint: plan.metadata?.blueprint ?? null },
+    task: plan.spec?.task ?? {},
+    nodes: (plan.spec?.nodes ?? []).map(node => ({
+      id: node.id,
+      skill: node.skill,
+      executor: node.executor,
+      status: 'pending',
+      attempts: 0,
+      inputs: node.inputs ?? [],
+      outputs: node.outputs ?? [],
+      dependsOn: node.dependsOn ?? [],
+      artifacts: []
+    })),
+    gates: (plan.spec?.gates ?? []).map(gate => ({ ...gate, status: 'pending' }))
+  };
+}
+
+function createInitialArtifactManifest(plan, runDir, root, now) {
+  const manifest = { apiVersion: 'sloom.dev/v1alpha1', kind: 'ArtifactManifest', generatedAt: now, artifacts: [] };
+  const taskText = plan.spec?.task?.description ?? '';
+  const file = join(runDir, 'artifacts', 'context', 'task.description.md');
+  mkdirSync(dirname(file), { recursive: true });
+  const content = `# Task Description\n\n${taskText}\n`;
+  writeFileSync(file, content);
+  manifest.artifacts.push({
+    name: 'task.description',
+    path: relative(root, file),
+    checksum: `sha256:${sha256(content)}`,
+    node: null,
+    skill: null,
+    executor: 'user',
+    attempt: 0,
+    createdAt: now,
+    inputs: [],
+    metadata: { status: 'provided', title: 'Task Description' }
+  });
+  return manifest;
+}
+
+function resolveInputArtifacts(inputs, manifest) {
+  const artifacts = manifest.artifacts ?? [];
+  return inputs.map(name => [...artifacts].reverse().find(item => item.name === name) ?? { name, path: null, checksum: null, missing: true });
+}
+
+function evaluateGates(plan, manifest) {
+  return (plan.spec?.gates ?? []).map(gate => {
+    if (gate.type === 'approval') return { ...gate, status: 'skipped', reason: 'approval gates require external approval executor' };
+    if (String(gate.expression ?? '').includes("artifacts['review-result'].status == 'approved'")) {
+      const review = [...(manifest.artifacts ?? [])].reverse().find(item => item.name === 'review-result');
+      return { ...gate, status: review?.metadata?.status === 'approved' ? 'passed' : 'failed' };
+    }
+    return { ...gate, status: 'skipped', reason: 'unsupported gate expression in local runtime' };
+  });
+}
+
+function writeRunState(runDir, state) {
+  writeJson(join(runDir, 'run-state.json'), state);
+}
+
+function writeArtifactManifest(runDir, manifest) {
+  writeJson(join(runDir, 'artifacts', 'manifest.json'), manifest);
+}
+
+function appendRunEvent(runDir, event) {
+  appendFileSync(join(runDir, 'events.jsonl'), `${JSON.stringify({ time: new Date().toISOString(), ...event })}\n`);
+}
+
+function summarizeRunResult(state, root, runDir) {
+  return {
+    id: state.id,
+    status: state.status,
+    runDir: relative(root, runDir),
+    planId: state.plan?.id ?? null,
+    nodes: (state.nodes ?? []).map(node => ({ id: node.id, skill: node.skill, status: node.status, artifacts: node.artifacts ?? [] })),
+    gates: state.gates ?? []
+  };
+}
+
+function makeRunId(plan) {
+  const stamp = new Date().toISOString().replace(/[-:.TZ]/g, '');
+  return `${stamp}-${slugify(plan.metadata?.id ?? plan.spec?.task?.description ?? 'run')}`.slice(0, 120);
+}
+
+function artifactTitle(name) {
+  return String(name).split(/[._-]/).map(part => part ? part[0].toUpperCase() + part.slice(1) : part).join(' ');
+}
+
+function safePathSegment(value) {
+  return String(value ?? 'artifact').replace(/[^a-zA-Z0-9._-]/g, '-').replace(/^-+|-+$/g, '') || 'artifact';
+}
+
+function numberOption(value) {
+  if (value === undefined || value === null || value === '') return Infinity;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? n : Infinity;
 }
 
 export function validatePlan(plan, catalog) {

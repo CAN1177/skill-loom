@@ -933,39 +933,41 @@ npm run check
 .sloom/catalog.json
 ```
 
-### P2：Planner 升级为最小闭合 DAG
+### P2：Workflow Executor / Artifact Runtime
 
-目标：解决“简单开发任务自动编排”的核心体验。
+目标：让自动编排结果真正落盘执行，形成可追踪、可恢复的 Artifact Runtime。
 
 任务：
 
-- [ ] Blueprint schema 增加 stages、requiredInputs、requiredOutputs、gates。
-- [ ] Planner 从“按阶段套模板”升级为“Artifact dependency closure”。
-- [ ] Router 输出 selected/rejected reasons。
-- [ ] Planner 自动插入缺失 Artifact 的 producer。
-- [ ] 支持 plan.lock 与 plan diff。
-- [ ] Validate 增加 DAG cycle、producer/consumer、policy、parallel conflict 检查。
-- [ ] 为 bugfix/feature/refactor 各提供 3 个真实示例任务。
+- [x] `.sloom/runs/<run-id>` 目录标准化。
+- [x] 实现 `plan.lock.json`。
+- [x] 实现 `run-state.json`。
+- [x] 实现 append-only `events.jsonl`。
+- [x] 实现 artifact manifest 与 checksum。
+- [x] 实现确定性 local executor：不改源码，只物化节点输出 Artifact。
+- [x] 实现 `sloom resume <run-id>`，支持从 paused run 继续。
+- [x] 实现 `sloom runs` 查看历史运行。
+- [ ] 接入真实 shell / Codex / Claude Code Executor。
+- [ ] 支持失败节点日志、retry policy 和 gate 强制执行。
 
 验收标准：
 
-- 对一个小型 bugfix，计划不超过 5 个节点。
-- 对一个跨模块 feature，能自动拆分需求、实现、验证、Review。
-- 每个节点都有明确输入、输出、选择原因和 Gate。
+- `sloom run <plan>` 生成 run-state、events 和 artifacts manifest。
+- `sloom run <plan> --max-nodes 2` 可暂停，`sloom resume <run-id>` 可继续。
+- 每个 Artifact 可追溯到 node、skill、executor、attempt、inputs 和 checksum。
 
-### P3：Artifact Store、运行状态与恢复
+### P3：Agent Executor 与真实执行
 
-目标：让执行不再只是 dry-run，而是可追踪、可恢复。
+目标：在 P2 的 Artifact Runtime 上接入真实 Shell/Codex/Claude Code 执行器，让执行不止生成确定性草稿 Artifact。
 
 任务：
 
-- [ ] `.sloom/runs/<run-id>` 目录标准化。
-- [ ] 设计并实现 `run-state.json`。
-- [ ] 设计并实现 append-only `events.jsonl`。
-- [ ] 实现 artifact manifest 与 checksum。
 - [ ] 实现 shell executor。
-- [ ] 实现 node retry/resume 状态机。
+- [ ] 实现 Codex executor adapter。
+- [ ] 实现 Claude Code executor adapter。
+- [ ] 实现失败节点日志、retry/backoff、resume 状态机增强。
 - [ ] 实现 run report。
+- [ ] 实现 gate 强制执行与人工 approval。
 
 验收标准：
 

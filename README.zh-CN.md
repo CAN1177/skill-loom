@@ -81,13 +81,41 @@ node packages/cli/bin/sloom.js route "修复资源列表搜索为空时报错" -
 # 生成计划
 node packages/cli/bin/sloom.js plan --task "修复资源列表搜索为空时报错" --blueprint bugfix --out .sloom/plans/search-empty-bug.json
 
-# 校验、画图、dry-run
+# 校验、画图、dry-run，并使用 Artifact Runtime 执行
 node packages/cli/bin/sloom.js validate .sloom/plans/search-empty-bug.json
 node packages/cli/bin/sloom.js graph .sloom/plans/search-empty-bug.json
 node packages/cli/bin/sloom.js run .sloom/plans/search-empty-bug.json --dry-run
+node packages/cli/bin/sloom.js run .sloom/plans/search-empty-bug.json
+node packages/cli/bin/sloom.js runs
+# node packages/cli/bin/sloom.js resume <run-id>
 ```
 
 如果作为 npm package 安装，二进制命令名是 `sloom`。
+
+## Workflow 执行与 Artifact
+
+`sloom run` 会在 `.sloom/runs/<run-id>` 下创建可恢复的运行目录：
+
+```text
+.sloom/runs/<run-id>/
+  plan.lock.json
+  run-state.json
+  events.jsonl
+  artifacts/
+    manifest.json
+    <node-id>/<artifact-name>.md
+```
+
+当前默认 local runtime 是确定性、安全的：不会修改源码，只会把每个节点的输出物化为可追踪 Artifact，便于检查、恢复，并为后续接入真实 Agent Executor 留出接口。
+
+常用命令：
+
+```bash
+node packages/cli/bin/sloom.js run .sloom/plans/search-empty-bug.json --max-nodes 2
+node packages/cli/bin/sloom.js resume <run-id>
+node packages/cli/bin/sloom.js runs --json
+```
+
 
 ## 仓库结构
 

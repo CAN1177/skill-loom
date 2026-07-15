@@ -8,7 +8,7 @@
   "scripts": {
     "sloom": "node packages/cli/bin/sloom.js",
     "test": "node --test",
-    "check": "node packages/cli/bin/sloom.js --help && node packages/cli/bin/sloom.js scan examples/skills --out .sloom/inventory.json && node packages/cli/bin/sloom.js propose --from .sloom/inventory.json --out .sloom/proposals/overlays.json && node packages/cli/bin/sloom.js validate examples/bugfix.plan.json && node packages/cli/bin/sloom.js graph examples/bugfix.plan.json"
+    "check": "node packages/cli/bin/sloom.js --help && node packages/cli/bin/sloom.js scan examples/skills --out .sloom/inventory.json && node packages/cli/bin/sloom.js propose --from .sloom/inventory.json --out .sloom/proposals/overlays.json && node packages/cli/bin/sloom.js validate examples/bugfix.plan.json && node packages/cli/bin/sloom.js graph examples/bugfix.plan.json && node packages/cli/bin/sloom.js run examples/bugfix.plan.json --dry-run && node packages/cli/bin/sloom.js runs --json"
   },
   "workspaces": [
     "packages/*"

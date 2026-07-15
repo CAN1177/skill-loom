@@ -7,6 +7,7 @@ import {
   ensureSloom,
   indexSkills,
   lintCatalog,
+  listRuns,
   planToMermaid,
   proposeOverlays,
   readBlueprint,
@@ -15,7 +16,9 @@ import {
   readJson,
   readPack,
   rollbackBackup,
+  resumeWorkflowRun,
   routeTask,
+  runWorkflowPlan,
   scanSkills,
   validatePlan,
   writeInventory,
@@ -41,6 +44,8 @@ try {
   else if (command === 'validate') cmdValidate(args.slice(1));
   else if (command === 'graph') cmdGraph(args.slice(1));
   else if (command === 'run') cmdRun(args.slice(1));
+  else if (command === 'resume') cmdResume(args.slice(1));
+  else if (command === 'runs') cmdRuns(args.slice(1));
   else die(`Unknown command: ${command}\nRun: sloom --help`);
 } catch (error) {
   die(error?.stack || error?.message || String(error));
@@ -194,28 +199,41 @@ function cmdGraph(argv) {
 
 function cmdRun(argv) {
   const file = positional(argv)[0];
-  if (!file) die('Usage: sloom run <plan.json> --dry-run');
+  if (!file) die('Usage: sloom run <plan.json> [--dry-run] [--max-nodes N] [--json]');
   const dryRun = argv.includes('--dry-run');
   const plan = readJson(resolve(root, file));
-  const catalog = readCatalog(root);
-  const validation = validatePlan(plan, catalog);
-  if (!validation.ok) {
-    reportValidation(validation);
-    process.exit(1);
+  const catalog = ensureCatalog();
+  const result = runWorkflowPlan(plan, catalog, root, { dryRun, maxNodes: getOption(argv, '--max-nodes') });
+  if (argv.includes('--json')) printJson(result);
+  else printRunResult(result, dryRun ? 'Dry-run completed' : 'Run completed');
+}
+
+function cmdResume(argv) {
+  const runId = positional(argv)[0];
+  if (!runId) die('Usage: sloom resume <run-id> [--max-nodes N] [--json]');
+  const catalog = ensureCatalog();
+  const result = resumeWorkflowRun(runId, catalog, root, { maxNodes: getOption(argv, '--max-nodes') });
+  if (argv.includes('--json')) printJson(result);
+  else printRunResult(result, 'Resume completed');
+}
+
+function cmdRuns(argv) {
+  const runs = listRuns(root);
+  if (argv.includes('--json')) printJson(runs);
+  else {
+    for (const run of runs) console.log(`${run.id}\t${run.status}\t${run.nodes ?? 0}\t${run.planId ?? ''}`);
   }
-  const runId = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14) + '-' + plan.metadata.id;
-  const runDir = join(root, '.sloom', 'runs', runId);
-  mkdirSync(join(runDir, 'artifacts'), { recursive: true });
-  writeJson(join(runDir, 'plan.lock.json'), plan);
-  const events = [];
-  for (const node of plan.spec.nodes ?? []) {
-    const event = { time: new Date().toISOString(), node: node.id, skill: node.skill, status: dryRun ? 'dry-run' : 'skipped', executor: node.executor };
-    events.push(event);
-    console.log(`${dryRun ? '[dry-run]' : '[skip]'} ${node.id} -> ${node.skill} via ${node.executor}`);
+}
+
+function printRunResult(result, title) {
+  console.log(`${title}: ${result.id}`);
+  console.log(`Status: ${result.status}`);
+  console.log(`Run dir: ${result.runDir}`);
+  for (const node of result.nodes) {
+    const artifacts = node.artifacts?.length ? ` artifacts=${node.artifacts.length}` : '';
+    console.log(`- ${node.status} ${node.id} -> ${node.skill}${artifacts}`);
   }
-  writeFileSync(join(runDir, 'events.jsonl'), events.map(e => JSON.stringify(e)).join('\n') + '\n');
-  console.log(`Trace written to ${runDir}`);
-  if (!dryRun) console.log('MVP currently supports deterministic trace creation; real executors are next milestone. Use --dry-run for now.');
+  for (const gate of result.gates ?? []) console.log(`gate ${gate.after ?? ''}: ${gate.status}`);
 }
 
 function ensureCatalog() {
@@ -240,9 +258,12 @@ Usage:
   sloom plan --task "<task>" [--blueprint bugfix|feature] [--out plan.json]
   sloom validate <plan.json>
   sloom graph <plan.json> [--out graph.mmd]
-  sloom run <plan.json> --dry-run
+  sloom run <plan.json> [--dry-run] [--max-nodes N]
+  sloom resume <run-id> [--max-nodes N]
+  sloom runs [--json]
 `);
 }
+
 function getOption(argv, name) {
   const idx = argv.indexOf(name);
   if (idx !== -1) return argv[idx + 1];

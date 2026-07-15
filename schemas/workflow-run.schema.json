@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sloom.dev/schemas/workflow-run.schema.json",
+  "title": "sLoom Workflow Run",
+  "type": "object",
+  "required": ["apiVersion", "kind", "id", "status", "createdAt", "nodes"],
+  "properties": {
+    "apiVersion": { "const": "sloom.dev/v1alpha1" },
+    "kind": { "const": "WorkflowRun" },
+    "id": { "type": "string" },
+    "status": { "enum": ["created", "running", "paused", "succeeded", "failed", "dry-run"] },
+    "createdAt": { "type": "string" },
+    "updatedAt": { "type": "string" },
+    "startedAt": { "type": ["string", "null"] },
+    "finishedAt": { "type": ["string", "null"] },
+    "plan": { "type": "object" },
+    "task": { "type": "object" },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "skill", "status", "attempts", "inputs", "outputs", "artifacts"],
+        "properties": {
+          "id": { "type": "string" },
+          "skill": { "type": "string" },
+          "executor": { "type": "string" },
+          "status": { "enum": ["pending", "running", "blocked", "paused", "succeeded", "failed", "dry-run"] },
+          "attempts": { "type": "integer", "minimum": 0 },
+          "inputs": { "type": "array", "items": { "type": "string" } },
+          "outputs": { "type": "array", "items": { "type": "string" } },
+          "dependsOn": { "type": "array", "items": { "type": "string" } },
+          "artifacts": { "type": "array", "items": { "type": "string" } }
+        },
+        "additionalProperties": true
+      }
+    },
+    "gates": { "type": "array" }
+  },
+  "additionalProperties": true
+}
