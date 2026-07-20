@@ -1,8 +1,7 @@
 {
-  "name": "skill-loom-workspace",
-  "private": true,
+  "name": "sloom",
   "version": "0.1.0",
-  "description": "sLoom: Skill-first orchestrator CLI for routing, planning, validating, and tracing skill workflows.",
+  "description": "sLoom: open-source Skill-first orchestrator CLI for weaving engineering Skills into executable workflows.",
   "type": "module",
   "packageManager": "pnpm@9.6.0",
   "scripts": {
@@ -24,5 +23,36 @@
     "workflow",
     "developer-tools"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "bin": {
+    "sloom": "packages/cli/bin/sloom.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CAN1177/skill-loom.git"
+  },
+  "homepage": "https://github.com/CAN1177/skill-loom#readme",
+  "bugs": {
+    "url": "https://github.com/CAN1177/skill-loom/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "files": [
+    "packages/core/src",
+    "packages/cli/bin",
+    "blueprints",
+    "packs",
+    "schemas",
+    "examples",
+    "evals",
+    "skills/sloom-orchestrator",
+    "docs/agent-integration.md",
+    "docs/guides/team-adoption.md",
+    "docs/assets/sloom-icon.svg",
+    "README.md",
+    "README.zh-CN.md",
+    "LICENSE"
+  ]
 }

@@ -48,53 +48,60 @@ SQLite/FTS, LLM rerank, direct opt-in subprocess execution, worktree isolation, 
 
 ## Quick start
 
+### Use the npm package first
+
+Requires Node.js 22+. Install the CLI globally, or run it directly with `npx`:
+
 ```bash
-# Node.js 22+
-node packages/cli/bin/sloom.js --help
+npm install -g sloom
+sloom --help
 
-# Initialize local state
-node packages/cli/bin/sloom.js init
-
-# Scan example skills into a non-invasive inventory
-node packages/cli/bin/sloom.js scan examples/skills
-
-# Propose missing overlays without mutating skill directories
-node packages/cli/bin/sloom.js propose --from .sloom/inventory.json
-
-# Review, then apply overlays into .sloom/overlays with a rollback backup
-node packages/cli/bin/sloom.js apply .sloom/proposals/overlays.json --yes --backup
-# node packages/cli/bin/sloom.js rollback <backup-id>
-
-# Index example skills with pack overlays
-node packages/cli/bin/sloom.js index examples/skills
-
-# Inspect catalog
-node packages/cli/bin/sloom.js skills list
-node packages/cli/bin/sloom.js skills lint
-
-# Route a task
-node packages/cli/bin/sloom.js route "修复资源列表搜索为空时报错" --json
-
-# Generate a plan
-node packages/cli/bin/sloom.js plan --task "修复资源列表搜索为空时报错" --blueprint bugfix --out .sloom/plans/search-empty-bug.json
-
-# Validate, graph, dry-run, and execute with artifact runtime
-node packages/cli/bin/sloom.js validate .sloom/plans/search-empty-bug.json
-node packages/cli/bin/sloom.js graph .sloom/plans/search-empty-bug.json
-node packages/cli/bin/sloom.js run .sloom/plans/search-empty-bug.json --dry-run
-node packages/cli/bin/sloom.js run .sloom/plans/search-empty-bug.json
-
-# P3/P4: run with safe-shell, handoff, or dispatch adapters
-node packages/cli/bin/sloom.js executors
-node packages/cli/bin/sloom.js eval evals/development-flow.json
-node packages/cli/bin/sloom.js run .sloom/plans/search-empty-bug.json --executor auto
-# node packages/cli/bin/sloom.js run .sloom/plans/search-empty-bug.json --executor cao
-node packages/cli/bin/sloom.js runs
-# node packages/cli/bin/sloom.js artifact put <run-id> <node-id> <artifact-name> <file>
-# node packages/cli/bin/sloom.js resume <run-id> --executor auto
+# Or without global installation
+npx sloom --help
 ```
 
-If installed as a package, the binary name is `sloom`.
+Create a local sLoom workspace and try the built-in example Skills bundled with the package:
+
+```bash
+mkdir sloom-demo && cd sloom-demo
+sloom init
+sloom index
+sloom skills list
+
+sloom route "修复资源列表搜索为空时报错" --json
+sloom plan --task "修复资源列表搜索为空时报错" --blueprint bugfix --out .sloom/plans/search-empty-bug.json
+sloom validate .sloom/plans/search-empty-bug.json
+sloom graph .sloom/plans/search-empty-bug.json
+sloom run .sloom/plans/search-empty-bug.json --executor auto --max-nodes 2
+sloom runs
+```
+
+Use your own Skills by passing their directories explicitly:
+
+```bash
+sloom scan ~/.agents/skills ~/.codex/skills --out .sloom/inventory.json
+sloom propose --from .sloom/inventory.json --out .sloom/proposals/overlays.json
+sloom apply .sloom/proposals/overlays.json --yes --backup
+sloom index ~/.agents/skills ~/.codex/skills
+sloom route "implement a small bugfix and run regression tests"
+```
+
+Evaluate routing and planning quality with the bundled golden dataset:
+
+```bash
+sloom eval
+sloom eval --json --out .sloom/reports/development-flow.json
+```
+
+### Development from source
+
+When working inside this repository, you can still run the CLI without installing the package:
+
+```bash
+node packages/cli/bin/sloom.js --help
+node packages/cli/bin/sloom.js index examples/skills
+node packages/cli/bin/sloom.js eval evals/development-flow.json
+```
 
 ## Workflow execution and artifacts
 

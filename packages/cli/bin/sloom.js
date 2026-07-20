@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   applyOverlayProposal,
   createPlan,
@@ -31,6 +32,7 @@ import {
 const args = process.argv.slice(2);
 const command = args[0];
 const root = process.cwd();
+const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 try {
   if (!command || command === '--help' || command === '-h') help();
@@ -118,7 +120,10 @@ function cmdRollback(argv) {
 
 function cmdIndex(argv) {
   const paths = argv.filter(a => !a.startsWith('-'));
-  const catalog = indexSkills(paths, root);
+  let catalog = indexSkills(paths, root);
+  if (!catalog.skills?.length && !paths.length && packageRoot !== root && existsSync(join(packageRoot, 'examples', 'skills'))) {
+    catalog = indexSkills([join(packageRoot, 'examples', 'skills')], root, { overlayRoots: [packageRoot] });
+  }
   console.log(`Indexed ${catalog.skills.length} skill(s) into .sloom/catalog.json`);
   for (const skill of catalog.skills) console.log(`- ${skill.id} (${skill.title})`);
 }
@@ -148,7 +153,7 @@ function cmdRoute(argv) {
   const task = positional(argv)[0] ?? getOption(argv, '--task');
   if (!task) die('Usage: sloom route "<task>" [--pack frontend-delivery] [--json]');
   const catalog = ensureCatalog();
-  const pack = readPack(getOption(argv, '--pack') ?? readConfig(root).defaultPack, root);
+  const pack = readPackWithFallback(getOption(argv, '--pack') ?? readConfig(root).defaultPack);
   const result = routeTask(task, { catalog, pack, limit: Number(getOption(argv, '--limit') ?? 8) });
   if (argv.includes('--json')) printJson(result);
   else {
@@ -165,10 +170,10 @@ function cmdPlan(argv) {
   const task = getOption(argv, '--task') ?? positional(argv)[0];
   if (!task) die('Usage: sloom plan --task "<task>" [--blueprint bugfix] [--out .sloom/plans/task.json]');
   const catalog = ensureCatalog();
-  const pack = readPack(getOption(argv, '--pack') ?? readConfig(root).defaultPack, root);
+  const pack = readPackWithFallback(getOption(argv, '--pack') ?? readConfig(root).defaultPack);
   const route = routeTask(task, { catalog, pack });
   const blueprintName = getOption(argv, '--blueprint') ?? route.suggestedBlueprint ?? readConfig(root).defaultBlueprint;
-  const blueprint = readBlueprint(blueprintName, root);
+  const blueprint = readBlueprintWithFallback(blueprintName);
   const plan = createPlan({ task, catalog, blueprint, route, id: getOption(argv, '--id') });
   const out = getOption(argv, '--out');
   if (out) {
@@ -248,10 +253,10 @@ function cmdExecutors(argv) {
 function cmdEval(argv) {
   const file = positional(argv)[0] ?? 'evals/development-flow.json';
   if (!file) die('Usage: sloom eval [dataset.json] [--pack <id>] [--json] [--out report.json] [--include-plans]');
-  const dataset = readJson(resolve(root, file));
+  const dataset = readJsonWithFallback(file);
   const catalog = ensureCatalog();
-  const pack = readPack(getOption(argv, '--pack') ?? dataset.pack ?? readConfig(root).defaultPack, root);
-  const report = evaluateWorkflowQuality(dataset, catalog, root, { pack, includePlans: argv.includes('--include-plans') });
+  const pack = readPackWithFallback(getOption(argv, '--pack') ?? dataset.pack ?? readConfig(root).defaultPack);
+  const report = evaluateWorkflowQuality(dataset, catalog, root, { pack, readPack: readPackWithFallback, readBlueprint: readBlueprintWithFallback, includePlans: argv.includes('--include-plans') });
   const out = getOption(argv, '--out');
   const json = argv.includes('--json');
   if (out) {
@@ -308,7 +313,25 @@ function ensureCatalog() {
   ensureSloom(root);
   let catalog = readCatalog(root);
   if (!catalog.skills?.length) catalog = indexSkills(readConfig(root).skillPaths ?? ['./examples/skills'], root);
+  if (!catalog.skills?.length && packageRoot !== root && existsSync(join(packageRoot, 'examples', 'skills'))) {
+    catalog = indexSkills([join(packageRoot, 'examples', 'skills')], root, { overlayRoots: [packageRoot] });
+  }
   return catalog;
+}
+
+function readPackWithFallback(idOrFile) {
+  return readPack(idOrFile, root) ?? readPack(idOrFile, packageRoot);
+}
+
+function readBlueprintWithFallback(idOrFile) {
+  return readBlueprint(idOrFile, root) ?? readBlueprint(idOrFile, packageRoot);
+}
+
+function readJsonWithFallback(file) {
+  const local = resolve(root, file);
+  if (existsSync(local)) return readJson(local);
+  const bundled = resolve(packageRoot, file);
+  return readJson(bundled);
 }
 
 function help() {

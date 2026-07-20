@@ -1,7 +1,7 @@
 {
-  "name": "sloom",
+  "name": "@sloom/cli",
   "version": "0.1.0",
-  "description": "Skill-first orchestrator CLI.",
+  "description": "CLI package workspace for sLoom.",
   "type": "module",
   "bin": {
     "sloom": "bin/sloom.js"

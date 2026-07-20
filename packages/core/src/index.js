@@ -277,10 +277,10 @@ function createOverlaySkeleton(entry) {
 }
 
 
-export function indexSkills(paths, root = process.cwd()) {
+export function indexSkills(paths, root = process.cwd(), options = {}) {
   ensureSloom(root);
   const discovered = [];
-  const overlays = readSkillOverlays(root);
+  const overlays = readSkillOverlays(root, options.overlayRoots ?? []);
   for (const input of paths.length ? paths : readConfig(root).skillPaths ?? ['./examples/skills']) {
     const absolute = expandHome(resolveMaybe(root, input));
     if (!existsSync(absolute)) continue;
@@ -632,10 +632,10 @@ function evaluateCase(item, catalog, root, options = {}) {
   const task = item.task ?? item.input?.task;
   if (!task) throw new Error(`Evaluation case ${item.id ?? '(unknown)'} is missing task`);
   const expected = item.expected ?? {};
-  const pack = item.pack ? readPack(item.pack, root) : (options.pack ?? null);
+  const pack = item.pack ? (options.readPack?.(item.pack) ?? readPack(item.pack, root)) : (options.pack ?? null);
   const route = routeTask(task, { catalog, pack, limit: options.limit ?? 8 });
   const blueprintName = item.blueprint ?? expected.blueprint ?? route.suggestedBlueprint;
-  const blueprint = readBlueprint(blueprintName, root);
+  const blueprint = options.readBlueprint?.(blueprintName) ?? readBlueprint(blueprintName, root);
   const plan = createPlan({ task, catalog, blueprint, route, id: item.id });
   const validation = validatePlan(plan, catalog);
   const actualSkills = [...new Set((plan.spec?.nodes ?? []).map(node => node.skill))];
@@ -1601,6 +1601,7 @@ function readSkill(skillDir, root, overlays = { bySourcePath: new Map(), byId: n
   );
   const descriptor = mergeDeep(mergeDeep({ metadata: {}, spec: {} }, sidecar), overlay);
   delete descriptor.__sloomFingerprint;
+  delete descriptor.__sloomOverlayBase;
   const metadata = descriptor.metadata ?? {};
   const spec = descriptor.spec ?? {};
   const id = metadata.id ?? sidecarId ?? inferredId;
@@ -1630,13 +1631,19 @@ function readSkill(skillDir, root, overlays = { bySourcePath: new Map(), byId: n
   };
 }
 
-function readSkillOverlays(root) {
+function readSkillOverlays(root, overlayRoots = []) {
   const overlays = [];
-  for (const dir of [join(root, 'packs'), join(root, SLOOM_DIR, 'overlays', 'skills')]) {
+  const locations = [
+    { base: root, dir: join(root, 'packs') },
+    { base: root, dir: join(root, SLOOM_DIR, 'overlays', 'skills') },
+    ...overlayRoots.map(base => ({ base, dir: join(base, 'packs') }))
+  ];
+  for (const { base, dir } of locations) {
     for (const file of findMetadataFiles(dir)) {
       const value = readMetadataFile(file);
       if (value) {
         value.__sloomFingerprint = sha256(readFileSync(file, 'utf8'));
+        value.__sloomOverlayBase = base;
         overlays.push(value);
       }
     }
@@ -1648,8 +1655,11 @@ function readSkillOverlays(root) {
     const id = overlay.metadata?.id;
     if (id) byId.set(id, mergeDeep(byId.get(id) ?? {}, overlay));
     const sourcePath = overlay.metadata?.source?.path ?? overlay.metadata?.skillPath;
-    if (sourcePath) bySourcePath.set(normalizePathKey(resolveMaybe(root, sourcePath)), mergeDeep(bySourcePath.get(normalizePathKey(resolveMaybe(root, sourcePath))) ?? {}, overlay));
-    if (sourcePath) bySourcePath.set(normalizePathKey(sourcePath), mergeDeep(bySourcePath.get(normalizePathKey(sourcePath)) ?? {}, overlay));
+    if (sourcePath) {
+      const base = overlay.__sloomOverlayBase ?? root;
+      bySourcePath.set(normalizePathKey(resolveMaybe(base, sourcePath)), mergeDeep(bySourcePath.get(normalizePathKey(resolveMaybe(base, sourcePath))) ?? {}, overlay));
+      bySourcePath.set(normalizePathKey(sourcePath), mergeDeep(bySourcePath.get(normalizePathKey(sourcePath)) ?? {}, overlay));
+    }
   }
   return { byId, bySourcePath };
 }
