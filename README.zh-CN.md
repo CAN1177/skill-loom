@@ -1,8 +1,16 @@
-# sLoom
+<p align="center">
+  <img src="docs/assets/sloom-icon.svg" alt="sLoom sL monogram logo" width="96" height="96">
+</p>
+
+<h1 align="center">sLoom</h1>
 
 **sLoom**（`sloom`）是一个**开源**的 Skill-first Orchestrator CLI，用来把分散的工程 `SKILL.md` 文件编织成可路由、可审查、可执行的研发工作流。
 
 [English README](README.md)
+
+## 图标含义
+
+**Skill Loom** 的含义是：将离散的研发 Skills 按依赖、阶段、权限和质量门“编织”为可执行工作流。`sL` 字母图标和项目名直接呼应：`s` 代表 Skill，`L` 代表 Loom；穿过字母的编织线代表工作流编排，右下角的勾选标记代表可审查的质量门。
 
 它的核心思路很简单：
 

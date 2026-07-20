@@ -1,0 +1,47 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">sLoom sL monogram</title>
+  <desc id="desc">A refined sL monogram for sLoom, with subtle woven workflow threads and a quality gate.</desc>
+  <defs>
+    <linearGradient id="bg" x1="18" y1="12" x2="114" y2="120" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0F172A"/>
+      <stop offset="0.55" stop-color="#1E1B4B"/>
+      <stop offset="1" stop-color="#4338CA"/>
+    </linearGradient>
+    <linearGradient id="thread" x1="22" y1="90" x2="108" y2="34" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#22D3EE"/>
+      <stop offset="0.52" stop-color="#60A5FA"/>
+      <stop offset="1" stop-color="#FDE68A"/>
+    </linearGradient>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#020617" flood-opacity="0.24"/>
+    </filter>
+  </defs>
+
+  <rect x="10" y="10" width="108" height="108" rx="30" fill="url(#bg)" filter="url(#softShadow)"/>
+  <rect x="11" y="11" width="106" height="106" rx="29" stroke="white" stroke-opacity="0.14" stroke-width="2"/>
+
+  <!-- subtle loom lanes -->
+  <path d="M32 31V97" stroke="#E0E7FF" stroke-opacity="0.16" stroke-width="3" stroke-linecap="round"/>
+  <path d="M64 25V103" stroke="#E0E7FF" stroke-opacity="0.18" stroke-width="3" stroke-linecap="round"/>
+  <path d="M96 31V97" stroke="#E0E7FF" stroke-opacity="0.16" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- sL monogram -->
+  <text x="61" y="78"
+        text-anchor="middle"
+        font-family="Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif"
+        font-size="52"
+        font-weight="800"
+        letter-spacing="-5"
+        fill="#F8FAFC">sL</text>
+
+  <!-- woven workflow thread crossing the monogram -->
+  <path d="M27 88C43 70 54 70 65 79C78 89 92 82 103 64"
+        stroke="url(#thread)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="31" cy="84" r="4.5" fill="#22D3EE"/>
+  <circle cx="65" cy="79" r="4.5" fill="#F8FAFC"/>
+  <circle cx="101" cy="66" r="4.5" fill="#FDE68A"/>
+
+  <!-- quality gate -->
+  <rect x="86" y="86" width="18" height="18" rx="6" fill="#F8FAFC"/>
+  <path d="M90.5 95L94 98.5L100 91.2" stroke="#312E81" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

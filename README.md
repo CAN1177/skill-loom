@@ -1,8 +1,16 @@
-# sLoom
+<p align="center">
+  <img src="docs/assets/sloom-icon.svg" alt="sLoom sL monogram logo" width="96" height="96">
+</p>
+
+<h1 align="center">sLoom</h1>
 
 **sLoom** (`sloom`) is an **open-source**, skill-first orchestrator CLI for turning scattered engineering `SKILL.md` files into routable, reviewable, executable workflows.
 
 [中文文档](README.zh-CN.md)
+
+## Logo meaning
+
+**Skill Loom** means weaving scattered engineering Skills into an executable workflow by dependency, stage, permission, and quality gates. The `sL` monogram connects the project name with this metaphor: `s` stands for Skill, `L` stands for Loom, the woven thread represents workflow orchestration, and the check mark represents reviewable quality gates.
 
 The core idea is simple:
 
